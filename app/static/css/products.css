@@ -1,0 +1,23 @@
+body { padding-top: 20px; }
+.table thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+.table-sm td, .table-sm th { padding: .35rem .5rem; font-size: .9rem; }
+.warehouse-col { min-width: 120px; text-align: right; }
+.price-col { min-width: 110px; }
+.category-col { min-width: 160px; }
+.total-col { min-width: 130px; }
+.sku { color: #6c757d; font-size: .85rem; }
+.loader { display: none; }
+
+/* Колонка имени — компактно и с переносом строк */
+.name-col { width: 260px; }
+.name-wrap { max-width: 260px; white-space: normal; overflow-wrap: anywhere; }
+
+/* Миниатюры изображений и предпросмотр */
+.photos-col { width: 110px; }
+.thumbs { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; }
+.thumb { width: 32px; height: 32px; object-fit: cover; border-radius: 4px; }
+
+/* Плавающий предпросмотр полноразмерного изображения */
+.img-hover-preview { position: fixed; pointer-events: none; z-index: 9999; background: #fff; border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.25); padding: 6px; }
+.img-hover-preview img { display: block; max-width: 480px; max-height: 480px; width: auto; height: auto; border-radius: 4px; }
+

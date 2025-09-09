@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Товары — Остатки по складам</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/products.css" rel="stylesheet">
+  </head>
+  <body>
+    <div class="container-fluid">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0">Товары и остатки по складам</h5>
+        <a class="link-secondary" href="/docs" target="_blank">Документация API</a>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body py-2">
+          <div class="row g-2 align-items-center">
+            <div class="col-12 col-md-4">
+              <input id="searchInput" class="form-control form-control-sm" placeholder="Поиск по названию или SKU...">
+            </div>
+            <div class="col-6 col-md-2">
+              <select id="pageSize" class="form-select form-select-sm">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+            <div class="col-6 col-md-2">
+              <button id="reloadBtn" class="btn btn-sm btn-primary w-100">Обновить</button>
+            </div>
+            <div class="col-12 col-md-4 text-md-end">
+              <small class="text-muted">Склады: <span id="wh-list"></span></small>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mb-2">
+        <div class="col">
+          <div id="summary" class="d-flex flex-wrap gap-2"></div>
+        </div>
+        <div class="col-auto">
+          <div class="spinner-border spinner-border-sm text-secondary loader" role="status" id="loader">
+            <span class="visually-hidden">Загрузка...</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-responsive" style="max-height: calc(100vh - 220px);">
+        <table class="table table-bordered table-hover table-sm align-middle">
+          <thead>
+            <tr>
+              <th class="photos-col">Фото</th>
+              <th class="name-col">Товар</th>
+              <th class="category-col">Категория</th>
+              <th style="width: 120px;" class="text-end">Цена</th>
+              <th class="price-col text-end" data-price="48388">Розничная</th>
+              <th class="price-col text-end" data-price="97150">Партнёр</th>
+              <th class="price-col text-end" data-price="377836">Продажа зч</th>
+              <th class="price-col text-end" data-price="555169">Продажа зч VIP</th>
+              <th class="total-col text-end">Общий остаток</th>
+              <th class="warehouse-col" data-wh="2272079">29. Склад Китай</th>
+              <th class="warehouse-col" data-wh="52226">05. Виртуальный склад</th>
+              <th class="warehouse-col" data-wh="37746">01. Запчасти Ростов</th>
+            </tr>
+          </thead>
+          <tbody id="productsBody"></tbody>
+        </table>
+      </div>
+
+      <div class="d-flex gap-2 justify-content-between align-items-center mt-2">
+        <div>
+          <button id="prevBtn" class="btn btn-sm btn-outline-secondary">Назад</button>
+          <button id="nextBtn" class="btn btn-sm btn-outline-secondary">Вперёд</button>
+        </div>
+        <div>
+          <small id="pageInfo" class="text-muted"></small>
+        </div>
+      </div>
+    </div>
+
+    <script src="/static/js/products.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  </body>
+  </html>
+
+
