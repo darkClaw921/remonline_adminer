@@ -11,8 +11,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./remonline.db")
 
     # Настройки приложения
-    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+    DEBUG: bool = os.getenv("DEBUG", False)
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    PORT: int = int(os.getenv("PORT", 8000))
 
     # Настройки обновления данных
     UPDATE_INTERVAL_MINUTES: int = int(os.getenv("UPDATE_INTERVAL_MINUTES", "30"))
