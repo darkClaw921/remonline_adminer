@@ -1,7 +1,15 @@
 body { padding-top: 20px; }
 .table thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+/* Центрируем заголовки таблицы, включая те, что имеют класс text-end */
+.table thead th { text-align: center; }
+.table thead th.text-end { text-align: center !important; }
 .table-sm td, .table-sm th { padding: .35rem .5rem; font-size: .9rem; }
-.warehouse-col { min-width: 120px; text-align: right; }
+/* Центрируем все ячейки по умолчанию, кроме колонки Товар */
+tbody td { text-align: center; vertical-align: middle; }
+tbody td.name-col { text-align: left; }
+tbody td.photos-col { text-align: center; }
+tbody td.total-col, tbody td.price-col, tbody td.price-base-col { text-align: center; }
+.warehouse-col { min-width: 120px; text-align: center; }
 .price-col { min-width: 110px; }
 .category-col { min-width: 160px; }
 .total-col { min-width: 130px; }
@@ -9,7 +17,7 @@ body { padding-top: 20px; }
 .loader { display: none; }
 
 /* Колонка имени — компактно и с переносом строк */
-.name-col { width: 260px; }
+.name-col { width: 260px; text-align: left; }
 .name-wrap { max-width: 260px; white-space: normal; overflow-wrap: anywhere; }
 
 /* Миниатюры изображений и предпросмотр */

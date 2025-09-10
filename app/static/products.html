@@ -85,11 +85,12 @@
         </div>
       </div>
 
-      <div class="row mb-2">
+      <div class="row mb-2 align-items-center">
         <div class="col">
           <div id="summary" class="d-flex flex-wrap gap-2"></div>
         </div>
-        <div class="col-auto">
+        <div class="col-auto d-flex align-items-center gap-2">
+          <button id="columnsSettingsBtn" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#columnsModal" title="Настройки столбцов">⚙️</button>
           <div class="spinner-border spinner-border-sm text-secondary loader" role="status" id="loader">
             <span class="visually-hidden">Загрузка...</span>
           </div>
@@ -103,7 +104,7 @@
               <th class="photos-col">Фото</th>
               <th class="name-col">Товар</th>
               <th class="category-col">Категория</th>
-              <th style="width: 120px;" class="text-end">Цена</th>
+              <th style="width: 120px;" class="price-base-col text-end">Цена</th>
               <th class="price-col text-end" data-price="48388">Розничная</th>
               <th class="price-col text-end" data-price="97150">Партнёр</th>
               <th class="price-col text-end" data-price="377836">Продажа зч</th>
@@ -125,6 +126,32 @@
         </div>
         <div>
           <small id="pageInfo" class="text-muted"></small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Выбор отображаемых столбцов -->
+    <div class="modal fade" id="columnsModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header py-2">
+            <h6 class="modal-title mb-0">Отображение столбцов</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-2">
+              <strong>Основные</strong>
+              <div id="columnsStaticList" class="d-grid gap-1 mt-2"></div>
+            </div>
+            <div class="mb-2">
+              <strong>Склады</strong>
+              <div id="columnsWarehousesList" class="d-grid gap-1 mt-2"></div>
+            </div>
+          </div>
+          <div class="modal-footer py-2">
+            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="columnsResetBtn">Сбросить</button>
+          </div>
         </div>
       </div>
     </div>

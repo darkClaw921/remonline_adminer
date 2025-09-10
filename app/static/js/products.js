@@ -2,6 +2,138 @@ const API_BASE = '/api/v1';
 // Склады из API (будут загружены при инициализации)
 let TARGET_WAREHOUSES = [];
 
+// Настройки отображения колонок (localStorage)
+const STORAGE_KEY_COLUMNS = 'columnsVisibility.v1';
+const DEFAULT_COLUMN_VISIBILITY = {
+  photos: true,
+  name: true,
+  category: true,
+  price_base: true,
+  price_48388: true,
+  price_97150: true,
+  price_377836: true,
+  price_555169: true,
+  total: true,
+  warehouses: {}
+};
+
+function loadColumnVisibility() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_COLUMNS);
+    if (!raw) return structuredClone(DEFAULT_COLUMN_VISIBILITY);
+    const parsed = JSON.parse(raw);
+    return { ...structuredClone(DEFAULT_COLUMN_VISIBILITY), ...parsed, warehouses: { ...DEFAULT_COLUMN_VISIBILITY.warehouses, ...(parsed.warehouses || {}) } };
+  } catch {
+    return structuredClone(DEFAULT_COLUMN_VISIBILITY);
+  }
+}
+
+function saveColumnVisibility(v) {
+  try { localStorage.setItem(STORAGE_KEY_COLUMNS, JSON.stringify(v)); } catch {}
+}
+
+let columnVisibility = loadColumnVisibility();
+
+function ensureWarehouseVisibilityKeys() {
+  for (const w of TARGET_WAREHOUSES) {
+    if (!(w.remonline_id in columnVisibility.warehouses)) {
+      columnVisibility.warehouses[w.remonline_id] = true;
+    }
+  }
+}
+
+function applyColumnVisibility() {
+  // Статические колонки: шапка
+  toggleColumnDisplay(document.querySelectorAll('thead th.photos-col'), columnVisibility.photos);
+  toggleColumnDisplay(document.querySelectorAll('thead th.name-col'), columnVisibility.name);
+  toggleColumnDisplay(document.querySelectorAll('thead th.category-col'), columnVisibility.category);
+  toggleColumnDisplay(document.querySelectorAll('thead th.price-base-col'), columnVisibility.price_base);
+  toggleColumnDisplay(document.querySelectorAll('thead th.price-col[data-price="48388"]'), columnVisibility.price_48388);
+  toggleColumnDisplay(document.querySelectorAll('thead th.price-col[data-price="97150"]'), columnVisibility.price_97150);
+  toggleColumnDisplay(document.querySelectorAll('thead th.price-col[data-price="377836"]'), columnVisibility.price_377836);
+  toggleColumnDisplay(document.querySelectorAll('thead th.price-col[data-price="555169"]'), columnVisibility.price_555169);
+  toggleColumnDisplay(document.querySelectorAll('thead th.total-col'), columnVisibility.total);
+
+  // Статические колонки: строки
+  toggleColumnDisplay(document.querySelectorAll('tbody td.photos-col'), columnVisibility.photos);
+  toggleColumnDisplay(document.querySelectorAll('tbody td.name-col'), columnVisibility.name);
+  toggleColumnDisplay(document.querySelectorAll('tbody td.category-col'), columnVisibility.category);
+  toggleColumnDisplay(document.querySelectorAll('tbody td.price-base-col'), columnVisibility.price_base);
+  toggleColumnDisplay(document.querySelectorAll('tbody td.price-col[data-price="48388"]'), columnVisibility.price_48388);
+  toggleColumnDisplay(document.querySelectorAll('tbody td.price-col[data-price="97150"]'), columnVisibility.price_97150);
+  toggleColumnDisplay(document.querySelectorAll('tbody td.price-col[data-price="377836"]'), columnVisibility.price_377836);
+  toggleColumnDisplay(document.querySelectorAll('tbody td.price-col[data-price="555169"]'), columnVisibility.price_555169);
+  toggleColumnDisplay(document.querySelectorAll('tbody td.total-col'), columnVisibility.total);
+
+  // Склады: шапка и строки
+  for (const w of TARGET_WAREHOUSES) {
+    const visible = !!columnVisibility.warehouses[w.remonline_id];
+    toggleColumnDisplay(document.querySelectorAll(`thead th.warehouse-col[data-wh="${w.remonline_id}"]`), visible);
+    toggleColumnDisplay(document.querySelectorAll(`tbody td.warehouse-col[data-wh="${w.remonline_id}"]`), visible);
+  }
+}
+
+function toggleColumnDisplay(nodeList, isVisible) {
+  nodeList.forEach(el => {
+    if (isVisible) el.classList.remove('d-none');
+    else el.classList.add('d-none');
+  });
+}
+
+function buildColumnsSettingsModal() {
+  const staticList = document.getElementById('columnsStaticList');
+  const whList = document.getElementById('columnsWarehousesList');
+  if (!staticList || !whList) return;
+  staticList.innerHTML = '';
+  whList.innerHTML = '';
+
+  const staticItems = [
+    { key: 'photos', title: 'Фото' },
+    { key: 'name', title: 'Товар' },
+    { key: 'category', title: 'Категория' },
+    { key: 'price_base', title: 'Цена' },
+    { key: 'price_48388', title: 'Розничная (48388)' },
+    { key: 'price_97150', title: 'Партнёр (97150)' },
+    { key: 'price_377836', title: 'Продажа зч (377836)' },
+    { key: 'price_555169', title: 'Продажа зч VIP (555169)' },
+    { key: 'total', title: 'Общий остаток' },
+  ];
+
+  for (const it of staticItems) {
+    const id = `col-static-${it.key}`;
+    const div = document.createElement('div');
+    div.className = 'form-check';
+    div.innerHTML = `<input class="form-check-input" type="checkbox" id="${id}">`+
+      `<label class="form-check-label" for="${id}">${it.title}</label>`;
+    const input = div.querySelector('input');
+    input.checked = !!columnVisibility[it.key];
+    input.addEventListener('change', () => {
+      columnVisibility[it.key] = !!input.checked;
+      saveColumnVisibility(columnVisibility);
+      applyColumnVisibility();
+    });
+    staticList.appendChild(div);
+  }
+
+  // Склады (динамически)
+  ensureWarehouseVisibilityKeys();
+  for (const w of TARGET_WAREHOUSES) {
+    const id = `col-wh-${w.remonline_id}`;
+    const div = document.createElement('div');
+    div.className = 'form-check';
+    div.innerHTML = `<input class="form-check-input" type="checkbox" id="${id}">`+
+      `<label class="form-check-label" for="${id}">${w.title} (${w.remonline_id})</label>`;
+    const input = div.querySelector('input');
+    input.checked = !!columnVisibility.warehouses[w.remonline_id];
+    input.addEventListener('change', () => {
+      columnVisibility.warehouses[w.remonline_id] = !!input.checked;
+      saveColumnVisibility(columnVisibility);
+      applyColumnVisibility();
+    });
+    whList.appendChild(div);
+  }
+}
+
 async function loadWarehouses() {
   try {
     const resp = await fetch(`${API_BASE}/warehouses/?active_only=true&limit=1000`);
@@ -26,6 +158,8 @@ async function loadWarehouses() {
       { remonline_id: 37746,  title: '01. Запчасти Ростов' },
     ];
     document.getElementById('wh-list').textContent = TARGET_WAREHOUSES.map(w => `${w.title} (${w.remonline_id})`).join(', ');
+    ensureWarehouseVisibilityKeys();
+    buildColumnsSettingsModal();
   }
 }
 
@@ -198,6 +332,15 @@ startPermanentStatusPolling();
 // Первичная инициализация статуса сразу после загрузки страницы
 pollSyncProgressOnce();
 
+// Инициализация модального окна при открытии
+const columnsModalEl = document.getElementById('columnsModal');
+if (columnsModalEl) {
+  columnsModalEl.addEventListener('show.bs.modal', () => {
+    // Перестраиваем, чтобы учесть динамические склады
+    buildColumnsSettingsModal();
+  });
+}
+
 document.getElementById('prevBtn').addEventListener('click', () => {
   if (state.page > 1 && !state.isLoading) {
     state.page -= 1;
@@ -275,6 +418,8 @@ function updateTableHeaders(warehousesToShow) {
     th.textContent = w.title;
     tableHeader.appendChild(th);
   }
+  // Применяем настройки видимости после перестройки шапки
+  applyColumnVisibility();
 }
 
 function renderSummary(productsWithStocks) {
@@ -333,19 +478,20 @@ function renderTable(productsWithStocks) {
         </div>
       </td>
       <td class="category-col">${escapeHtml(p.category || '-')}</td>
-      <td class="text-end">${p.price != null ? p.price : '-'}</td>
-      <td class="price-col text-end">${formatPrice(p.prices['48388'])}</td>
-      <td class="price-col text-end">${formatPrice(p.prices['97150'])}</td>
-      <td class="price-col text-end">${formatPrice(p.prices['377836'])}</td>
-      <td class="price-col text-end">${formatPrice(p.prices['555169'])}</td>
-      <td class="total-col text-end">${formatPrice(p.totalStock)}</td>
-      ${warehousesToShow.map(w => `<td class="warehouse-col">${p.stocks[w.remonline_id] ?? 0}</td>`).join('')}
+      <td class="price-base-col">${p.price != null ? p.price : '-'}</td>
+      <td class="price-col" data-price="48388">${formatPrice(p.prices['48388'])}</td>
+      <td class="price-col" data-price="97150">${formatPrice(p.prices['97150'])}</td>
+      <td class="price-col" data-price="377836">${formatPrice(p.prices['377836'])}</td>
+      <td class="price-col" data-price="555169">${formatPrice(p.prices['555169'])}</td>
+      <td class="total-col">${formatPrice(p.totalStock)}</td>
+      ${warehousesToShow.map(w => `<td class="warehouse-col" data-wh="${w.remonline_id}">${p.stocks[w.remonline_id] ?? 0}</td>`).join('')}
     `;
     fragment.appendChild(tr);
   }
   bodyEl.appendChild(fragment);
   attachImageHoverPreview();
   attachProductMenus();
+  applyColumnVisibility();
 }
 
 function escapeHtml(str) {
