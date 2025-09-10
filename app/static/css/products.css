@@ -39,4 +39,6 @@ select[multiple] { min-height: 100px; }
 /* Кнопка с прогресс-линией */
 .btn-progress { position: relative; overflow: hidden; }
 .btn-progress::after { content: ""; position: absolute; left: 0; right: auto; bottom: 0; height: 2px; width: var(--progress, 0%); background: #0d6efd; transition: width .15s ease; }
+/* ETA справа поверх линии прогресса */
+.btn-progress::before { content: attr(data-eta); position: absolute; right: 6px; bottom: 2px; font-size: 10px; color: #0d6efd; line-height: 1; }
 

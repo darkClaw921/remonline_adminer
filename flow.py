@@ -211,9 +211,9 @@ async def sync_stocks_for_warehouse_37746() -> None:
 
 def main() -> None:
     logger.info(f"Database URL: {settings.DATABASE_URL}")
-    # asyncio.run(sync_warehouses_to_db())
+    asyncio.run(sync_warehouses_to_db())
     # asyncio.run(sync_stocks_for_warehouse_37746())
-    asyncio.run(update_first_product_and_stocks())
+    # asyncio.run(update_first_product_and_stocks())
 
 
 async def update_first_product_and_stocks() -> None:

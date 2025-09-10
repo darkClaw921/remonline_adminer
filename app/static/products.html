@@ -30,7 +30,11 @@
             <div class="col-6 col-md-2">
               <button id="reloadBtn" class="btn btn-sm btn-primary w-100">Обновить</button>
             </div>
-            <div class="col-12 col-md-4 text-md-end">
+            <div class="col-12 col-md-4 text-md-end d-flex gap-2 justify-content-md-end align-items-center">
+              <button id="autoSyncBtn" class="btn btn-sm btn-outline-primary">Автосинхронизация</button>
+              <div class="progress" style="width:220px; height: 8px;">
+                <div id="autoSyncProgress" class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+              </div>
               <small class="text-muted">Склады: <span id="wh-list"></span></small>
             </div>
           </div>
@@ -42,9 +46,7 @@
             </div>
             <div class="col-6 col-md-3">
               <select id="warehouseFilter" class="form-select form-select-sm" multiple>
-                <option value="2272079">29. Склад Китай</option>
-                <option value="52226">05. Виртуальный склад</option>
-                <option value="37746">01. Запчасти Ростов</option>
+                <!-- Склады будут загружены динамически из API -->
               </select>
             </div>
             <div class="col-6 col-md-3">
@@ -69,9 +71,7 @@
                   <option value="category">Категория</option>
                   <option value="price">Цена</option>
                   <option value="total">Общий остаток</option>
-                  <option value="wh_2272079">29. Склад Китай</option>
-                  <option value="wh_52226">05. Виртуальный склад</option>
-                  <option value="wh_37746">01. Запчасти Ростов</option>
+                  <!-- Опции складов будут добавлены динамически -->
                 </select>
                 <select id="sortOrder" class="form-select" style="max-width: 160px;">
                   <option value="desc">По убыванию</option>

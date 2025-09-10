@@ -1,12 +1,163 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_, and_, distinct
 from typing import List, Optional
 from ..schemas import ProductResponse, APIResponse, ProductFilter
 from ...models import Product, Warehouse, Stock, get_db
 from ...services import RemonlineService
+from datetime import datetime
 
 router = APIRouter()
+
+@router.get("/filtered", response_model=APIResponse)
+async def get_products_filtered(
+    skip: int = 0,
+    limit: int = 100,
+    name: Optional[str] = None,
+    sku: Optional[str] = None,
+    category: Optional[str] = None,
+    warehouse_ids: Optional[str] = Query(None, description="Comma-separated warehouse remonline IDs"),
+    price_min: Optional[float] = None,
+    price_max: Optional[float] = None,
+    stock_min: Optional[float] = None,
+    stock_max: Optional[float] = None,
+    sort_by: Optional[str] = Query("name", description="Field to sort by: name, category, price, total_stock, wh_{warehouse_id}"),
+    sort_order: Optional[str] = Query("desc", description="Sort order: asc, desc"),
+    db: Session = Depends(get_db)
+):
+    """Получить товары с расширенными фильтрами по складам и остаткам"""
+    
+    # Базовый запрос товаров
+    query = db.query(Product).distinct()
+    
+    # Применяем текстовые фильтры
+    if name:
+        query = query.filter(Product.name.ilike(f"%{name}%"))
+    if sku:
+        query = query.filter(Product.sku.ilike(f"%{sku}%"))
+    if category:
+        query = query.filter(Product.category.ilike(f"%{category}%"))
+    
+    # Применяем фильтр по цене
+    if price_min is not None:
+        query = query.filter(Product.price >= price_min)
+    if price_max is not None:
+        query = query.filter(Product.price <= price_max)
+    
+    # Если указаны склады, фильтруем по остаткам на этих складах
+    if warehouse_ids:
+        try:
+            wh_remonline_ids = [int(x.strip()) for x in warehouse_ids.split(',') if x.strip()]
+            if wh_remonline_ids:
+                # Получаем внутренние ID складов по remonline_id
+                warehouses = db.query(Warehouse).filter(
+                    Warehouse.remonline_id.in_(wh_remonline_ids)
+                ).all()
+                wh_internal_ids = [wh.id for wh in warehouses]
+                
+                if wh_internal_ids:
+                    # Подзапрос для товаров с остатками на указанных складах
+                    stock_subquery = db.query(Stock.product_id).filter(
+                        Stock.warehouse_id.in_(wh_internal_ids),
+                        Stock.available_quantity > 0
+                    )
+                    
+                    # Применяем фильтр по минимальному/максимальному остатку
+                    if stock_min is not None or stock_max is not None:
+                        # Группируем по товару и суммируем остатки по выбранным складам
+                        from sqlalchemy import func
+                        stock_sum_subquery = db.query(
+                            Stock.product_id,
+                            func.sum(Stock.available_quantity).label('total_stock')
+                        ).filter(
+                            Stock.warehouse_id.in_(wh_internal_ids)
+                        ).group_by(Stock.product_id)
+                        
+                        if stock_min is not None:
+                            stock_sum_subquery = stock_sum_subquery.having(func.sum(Stock.available_quantity) >= stock_min)
+                        if stock_max is not None:
+                            stock_sum_subquery = stock_sum_subquery.having(func.sum(Stock.available_quantity) <= stock_max)
+                        
+                        product_ids_with_stock = [row.product_id for row in stock_sum_subquery.all()]
+                        if product_ids_with_stock:
+                            query = query.filter(Product.id.in_(product_ids_with_stock))
+                        else:
+                            # Нет товаров, соответствующих критериям остатка
+                            return APIResponse(success=True, data=[], count=0)
+                    else:
+                        query = query.filter(Product.id.in_(stock_subquery))
+                else:
+                    # Указанные склады не найдены
+                    return APIResponse(success=True, data=[], count=0)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid warehouse_ids format")
+    else:
+        # Если склады не указаны, но есть фильтр по остаткам, применяем к общему остатку
+        if stock_min is not None or stock_max is not None:
+            from sqlalchemy import func
+            stock_sum_subquery = db.query(
+                Stock.product_id,
+                func.sum(Stock.available_quantity).label('total_stock')
+            ).group_by(Stock.product_id)
+            
+            if stock_min is not None:
+                stock_sum_subquery = stock_sum_subquery.having(func.sum(Stock.available_quantity) >= stock_min)
+            if stock_max is not None:
+                stock_sum_subquery = stock_sum_subquery.having(func.sum(Stock.available_quantity) <= stock_max)
+            
+            product_ids_with_stock = [row.product_id for row in stock_sum_subquery.all()]
+            if product_ids_with_stock:
+                query = query.filter(Product.id.in_(product_ids_with_stock))
+            else:
+                return APIResponse(success=True, data=[], count=0)
+    
+    # Получаем общее количество для пагинации
+    total_count = query.count()
+    
+    # Применяем сортировку
+    if sort_by == "name":
+        query = query.order_by(Product.name.desc() if sort_order == "desc" else Product.name.asc())
+    elif sort_by == "category":
+        query = query.order_by(Product.category.desc() if sort_order == "desc" else Product.category.asc())
+    elif sort_by == "price":
+        query = query.order_by(Product.price.desc() if sort_order == "desc" else Product.price.asc())
+    elif sort_by == "total_stock":
+        # Сортировка по общему остатку требует подзапроса
+        from sqlalchemy import func
+        stock_sum = db.query(
+            Stock.product_id,
+            func.sum(Stock.available_quantity).label('total_stock')
+        ).group_by(Stock.product_id).subquery()
+        
+        query = query.outerjoin(stock_sum, Product.id == stock_sum.c.product_id)
+        query = query.order_by(stock_sum.c.total_stock.desc() if sort_order == "desc" else stock_sum.c.total_stock.asc())
+    elif sort_by.startswith("wh_"):
+        # Сортировка по остатку на конкретном складе
+        try:
+            wh_remonline_id = int(sort_by.split("_")[1])
+            warehouse = db.query(Warehouse).filter(Warehouse.remonline_id == wh_remonline_id).first()
+            if warehouse:
+                wh_stock = db.query(Stock).filter(Stock.warehouse_id == warehouse.id).subquery()
+                query = query.outerjoin(wh_stock, Product.id == wh_stock.c.product_id)
+                query = query.order_by(wh_stock.c.available_quantity.desc() if sort_order == "desc" else wh_stock.c.available_quantity.asc())
+        except (ValueError, IndexError):
+            # Неверный формат, используем сортировку по умолчанию
+            query = query.order_by(Product.name.desc() if sort_order == "desc" else Product.name.asc())
+    else:
+        # Сортировка по умолчанию
+        query = query.order_by(Product.name.desc() if sort_order == "desc" else Product.name.asc())
+    
+    # Применяем пагинацию
+    products = query.offset(skip).limit(limit).all()
+    
+    return APIResponse(
+        success=True,
+        data=[ProductResponse.from_orm(product) for product in products],
+        count=len(products),
+        total=total_count,
+        message=f"Found {total_count} products matching filters"
+    )
+
 
 @router.get("/", response_model=APIResponse)
 async def get_products(
@@ -192,6 +343,9 @@ async def refresh_product(
                 except Exception:
                     continue
 
+        # Явно обновим timestamp, чтобы фронт отобразил актуальную дату
+        product.updated_at = datetime.utcnow()
+        db.commit()
         return APIResponse(success=True, data={"product_id": product.id}, message="Product refreshed")
     except Exception as e:
         db.rollback()

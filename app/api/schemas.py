@@ -75,6 +75,7 @@ class APIResponse(BaseModel):
     data: Optional[Any] = None
     message: Optional[str] = None
     count: Optional[int] = None
+    total: Optional[int] = None
 
 class PaginatedResponse(BaseModel):
     items: List[Any]

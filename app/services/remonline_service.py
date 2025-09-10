@@ -37,10 +37,12 @@ class RemonlineService:
     async def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Выполнить запрос к API Remonline"""
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        logger.info(f"Making request to {url}")
+        # print(params)
+        logger.info(f"Making request to {params.url}")
 
         try:
             response = await self.client.get(url, params=params)
+            
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:
@@ -152,6 +154,15 @@ class RemonlineService:
     async def get_warehouse_goods(self, warehouse_id: int) -> List[Dict[str, Any]]:
         """Получить остатки товаров на складе (постранично до <50 элементов на странице)."""
         return await self._fetch_all_paginated(f"warehouse/goods/{warehouse_id}")
+
+    async def fetch_goods_page(self, warehouse_rem_id: int, page: int) -> List[Dict[str, Any]]:
+        """Получить одну страницу остатков по складу (для управляемого конвейера)."""
+        params = {"page": page}
+        response = await self._make_request(f"warehouse/goods/{warehouse_rem_id}", params=params)
+        data = response.get("data", [])
+        if not isinstance(data, list):
+            return []
+        return data
 
     async def get_postings(self, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Получить список поставок товаров"""
@@ -276,15 +287,154 @@ class RemonlineService:
                             # Отладка структуры данных
                             logger.debug(f"Good data structure: {good_data}")
 
-                    # Синхронизация товара
-                    # Используем поле 'id' как ID товара
+                        # Синхронизация товара
+                        # Используем поле 'id' как ID товара
+                        good_id = good_data.get("id")
+                        if not good_id:
+                            logger.error(f"Cannot find good_id in data: {good_data}")
+                            continue
+
+                        product = db.query(Product).filter_by(remonline_id=good_id).first()
+                        # Извлекаем основные поля
+                        product_name = good_data.get("title", "")
+                        product_sku = good_data.get("article", "")
+                        product_code = good_data.get("code")
+                        barcodes_list = good_data.get("barcodes", []) or []
+                        product_barcode = None
+                        if isinstance(barcodes_list, list) and barcodes_list:
+                            first_barcode = barcodes_list[0]
+                            if isinstance(first_barcode, dict):
+                                product_barcode = first_barcode.get("code")
+
+                        # Композитные поля
+                        uom_json = good_data.get("uom")
+                        images_json = good_data.get("image")
+                        prices_json = good_data.get("price")
+                        category_json = good_data.get("category")
+                        custom_fields_json = good_data.get("custom_fields")
+                        is_serial = bool(good_data.get("is_serial", False))
+                        warranty = good_data.get("warranty")
+                        warranty_period = good_data.get("warranty_period")
+                        description = good_data.get("description")
+
+                        # Выберем одно число цены (если нужно в старом поле price)
+                        price_value = None
+                        if isinstance(prices_json, dict) and prices_json:
+                            # берём первое ненулевое или первое попавшееся
+                            non_zero = [v for v in prices_json.values() if isinstance(v, (int, float)) and v]
+                            price_value = (non_zero[0] if non_zero else list(prices_json.values())[0])
+
+                        if not product:
+                            product = Product(
+                                remonline_id=good_id,
+                                name=product_name,
+                                sku=product_sku,
+                                barcode=product_barcode,
+                                code=product_code,
+                                uom_json=uom_json,
+                                images_json=images_json,
+                                prices_json=prices_json,
+                                category_json=category_json,
+                                category=(category_json.get("title") if isinstance(category_json, dict) else None),
+                                custom_fields_json=custom_fields_json,
+                                barcodes_json=barcodes_list,
+                                is_serial=is_serial,
+                                warranty=warranty,
+                                warranty_period=warranty_period,
+                                description=description,
+                                price=price_value,
+                            )
+                            db.add(product)
+                            db.flush()  # Получить ID товара
+                        else:
+                            product.name = product_name or product.name
+                            product.sku = product_sku or product.sku
+                            if product_barcode:
+                                product.barcode = product_barcode
+                            if product_code:
+                                product.code = product_code
+                            # перезаписываем композитные
+                            if uom_json is not None:
+                                product.uom_json = uom_json
+                            if images_json is not None:
+                                product.images_json = images_json
+                            if prices_json is not None:
+                                product.prices_json = prices_json
+                            if category_json is not None:
+                                product.category_json = category_json
+                                if isinstance(category_json, dict):
+                                    # Храним в строковом поле только название категории
+                                    title_value = category_json.get("title")
+                                    if title_value:
+                                        product.category = title_value
+                            if custom_fields_json is not None:
+                                product.custom_fields_json = custom_fields_json
+                            if barcodes_list is not None:
+                                product.barcodes_json = barcodes_list
+                            product.is_serial = is_serial
+                            if warranty is not None:
+                                product.warranty = warranty
+                            if warranty_period is not None:
+                                product.warranty_period = warranty_period
+                            if description is not None:
+                                product.description = description
+                            if price_value is not None:
+                                product.price = price_value
+                                # Синхронизация остатков
+                                # Используем поле 'residue' как количество товара
+                                quantity = good_data.get("residue", 0.0)
+
+                                stock = db.query(Stock).filter_by(
+                                    warehouse_id=warehouse.id,
+                                    product_id=product.id
+                                ).first()
+
+                                if not stock:
+                                    stock = Stock(
+                                        warehouse_id=warehouse.id,
+                                        product_id=product.id,
+                                        quantity=quantity,
+                                        reserved_quantity=0,  # В API нет этого поля
+                                        available_quantity=quantity  # Предполагаем, что все доступно
+                                    )
+                                    db.add(stock)
+                                else:
+                                    stock.quantity = quantity
+                                    stock.available_quantity = quantity
+
+                        # Обновить время последнего обновления и коммит после страницы
+                        last_update = db.query(LastUpdate).filter_by(entity_type="products_stocks").first()
+                        if not last_update:
+                            last_update = LastUpdate(entity_type="products_stocks")
+                            db.add(last_update)
+
+                    db.commit()
+                    logger.info(f"Committed goods page for warehouse {warehouse.name}")
+                except Exception as warehouse_error:
+                    logger.warning(f"Failed to get goods for warehouse {warehouse.name} (ID: {warehouse.remonline_id}): {str(warehouse_error)}")
+                    continue
+
+            logger.info("Products and stocks synchronized successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to sync products and stocks: {str(e)}")
+            db.rollback()
+            raise
+
+    async def sync_products_and_stocks_for_warehouse(self, db: Session, warehouse: Warehouse) -> None:
+        """Синхронизировать товары и остатки для одного склада (для прогресса по складам)."""
+        try:
+            async for goods_page in self._iterate_paginated(f"warehouse/goods/{warehouse.remonline_id}"):
+                logger.info(f"Processing {len(goods_page)} goods for warehouse {warehouse.name}")
+
+                for good_data in goods_page:
                     good_id = good_data.get("id")
                     if not good_id:
                         logger.error(f"Cannot find good_id in data: {good_data}")
                         continue
 
                     product = db.query(Product).filter_by(remonline_id=good_id).first()
-                    # Извлекаем основные поля
+
                     product_name = good_data.get("title", "")
                     product_sku = good_data.get("article", "")
                     product_code = good_data.get("code")
@@ -295,7 +445,6 @@ class RemonlineService:
                         if isinstance(first_barcode, dict):
                             product_barcode = first_barcode.get("code")
 
-                    # Композитные поля
                     uom_json = good_data.get("uom")
                     images_json = good_data.get("image")
                     prices_json = good_data.get("price")
@@ -306,10 +455,8 @@ class RemonlineService:
                     warranty_period = good_data.get("warranty_period")
                     description = good_data.get("description")
 
-                    # Выберем одно число цены (если нужно в старом поле price)
                     price_value = None
                     if isinstance(prices_json, dict) and prices_json:
-                        # берём первое ненулевое или первое попавшееся
                         non_zero = [v for v in prices_json.values() if isinstance(v, (int, float)) and v]
                         price_value = (non_zero[0] if non_zero else list(prices_json.values())[0])
 
@@ -334,7 +481,7 @@ class RemonlineService:
                             price=price_value,
                         )
                         db.add(product)
-                        db.flush()  # Получить ID товара
+                        db.flush()
                     else:
                         product.name = product_name or product.name
                         product.sku = product_sku or product.sku
@@ -342,7 +489,6 @@ class RemonlineService:
                             product.barcode = product_barcode
                         if product_code:
                             product.code = product_code
-                        # перезаписываем композитные
                         if uom_json is not None:
                             product.uom_json = uom_json
                         if images_json is not None:
@@ -352,7 +498,6 @@ class RemonlineService:
                         if category_json is not None:
                             product.category_json = category_json
                             if isinstance(category_json, dict):
-                                # Храним в строковом поле только название категории
                                 title_value = category_json.get("title")
                                 if title_value:
                                     product.category = title_value
@@ -369,43 +514,34 @@ class RemonlineService:
                             product.description = description
                         if price_value is not None:
                             product.price = price_value
-                            # Синхронизация остатков
-                            # Используем поле 'residue' как количество товара
-                            quantity = good_data.get("residue", 0.0)
 
-                            stock = db.query(Stock).filter_by(
-                                warehouse_id=warehouse.id,
-                                product_id=product.id
-                            ).first()
+                        # Остатки
+                    quantity = good_data.get("residue", 0.0)
+                    stock = db.query(Stock).filter_by(
+                        warehouse_id=warehouse.id,
+                        product_id=product.id,
+                    ).first()
+                    if not stock:
+                        stock = Stock(
+                            warehouse_id=warehouse.id,
+                            product_id=product.id,
+                            quantity=quantity,
+                            reserved_quantity=0,
+                            available_quantity=quantity,
+                        )
+                        db.add(stock)
+                    else:
+                        stock.quantity = quantity
+                        stock.available_quantity = quantity
 
-                            if not stock:
-                                stock = Stock(
-                                    warehouse_id=warehouse.id,
-                                    product_id=product.id,
-                                    quantity=quantity,
-                                    reserved_quantity=0,  # В API нет этого поля
-                                    available_quantity=quantity  # Предполагаем, что все доступно
-                                )
-                                db.add(stock)
-                            else:
-                                stock.quantity = quantity
-                                stock.available_quantity = quantity
-
-                        # Обновить время последнего обновления и коммит после страницы
-                        last_update = db.query(LastUpdate).filter_by(entity_type="products_stocks").first()
-                        if not last_update:
-                            last_update = LastUpdate(entity_type="products_stocks")
-                            db.add(last_update)
-
-                        db.commit()
-                        logger.info(f"Committed goods page for warehouse {warehouse.name}")
-                except Exception as warehouse_error:
-                    logger.warning(f"Failed to get goods for warehouse {warehouse.name} (ID: {warehouse.remonline_id}): {str(warehouse_error)}")
-                    continue
-
-            logger.info("Products and stocks synchronized successfully")
-
+                # Коммит после страницы
+                last_update = db.query(LastUpdate).filter_by(entity_type="products_stocks").first()
+                if not last_update:
+                    last_update = LastUpdate(entity_type="products_stocks")
+                    db.add(last_update)
+                db.commit()
+                logger.info(f"Committed goods page for warehouse {warehouse.name}")
         except Exception as e:
-            logger.error(f"Failed to sync products and stocks: {str(e)}")
+            logger.error(f"Failed to sync goods for warehouse {warehouse.name}: {str(e)}")
             db.rollback()
             raise

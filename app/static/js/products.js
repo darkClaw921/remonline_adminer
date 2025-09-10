@@ -1,17 +1,83 @@
 const API_BASE = '/api/v1';
-// Целевые склады по remonline_id
-const TARGET_WAREHOUSES = [
-  { remonline_id: 2272079, title: '29. Склад Китай' },
-  { remonline_id: 52226,  title: '05. Виртуальный склад' },
-  { remonline_id: 37746,  title: '01. Запчасти Ростов' },
-];
+// Склады из API (будут загружены при инициализации)
+let TARGET_WAREHOUSES = [];
 
-document.getElementById('wh-list').textContent = TARGET_WAREHOUSES.map(w => `${w.title} (${w.remonline_id})`).join(', ');
+async function loadWarehouses() {
+  try {
+    const resp = await fetch(`${API_BASE}/warehouses/?active_only=true&limit=1000`);
+    if (!resp.ok) throw new Error('warehouses fetch failed');
+    const data = await resp.json();
+    const warehouses = (data?.data || []).filter(w => w?.remonline_id && w?.name);
+    TARGET_WAREHOUSES = warehouses.map(w => ({
+      remonline_id: w.remonline_id,
+      title: w.name,
+    }));
+    
+    // Обновляем UI элементы
+    document.getElementById('wh-list').textContent = TARGET_WAREHOUSES.map(w => `${w.title} (${w.remonline_id})`).join(', ');
+    updateWarehouseFilterOptions();
+    updateSortOptions();
+  } catch (e) {
+    console.error('Failed to load warehouses:', e);
+    // Fallback к хардкоду при ошибке
+    TARGET_WAREHOUSES = [
+      { remonline_id: 2272079, title: '29. Склад Китай' },
+      { remonline_id: 52226,  title: '05. Виртуальный склад' },
+      { remonline_id: 37746,  title: '01. Запчасти Ростов' },
+    ];
+    document.getElementById('wh-list').textContent = TARGET_WAREHOUSES.map(w => `${w.title} (${w.remonline_id})`).join(', ');
+  }
+}
+
+function updateWarehouseFilterOptions() {
+  if (!warehouseFilterEl) return;
+  const selected = new Set(Array.from(warehouseFilterEl.selectedOptions).map(o => Number(o.value)));
+  warehouseFilterEl.innerHTML = '';
+  
+  // Добавляем placeholder опцию
+  const placeholderOpt = document.createElement('option');
+  placeholderOpt.value = '';
+  placeholderOpt.textContent = 'Выберите склады';
+  placeholderOpt.disabled = true;
+  placeholderOpt.hidden = true;
+  warehouseFilterEl.appendChild(placeholderOpt);
+  
+  for (const w of TARGET_WAREHOUSES) {
+    const opt = document.createElement('option');
+    opt.value = String(w.remonline_id);
+    opt.textContent = w.title;
+    if (selected.has(w.remonline_id)) opt.selected = true;
+    warehouseFilterEl.appendChild(opt);
+  }
+}
+
+function updateSortOptions() {
+  if (!sortByEl) return;
+  const currentValue = sortByEl.value;
+  
+  // Удаляем старые опции складов
+  const warehouseOptions = Array.from(sortByEl.options).filter(opt => opt.value.startsWith('wh_'));
+  warehouseOptions.forEach(opt => opt.remove());
+  
+  // Добавляем новые опции складов
+  for (const w of TARGET_WAREHOUSES) {
+    const opt = document.createElement('option');
+    opt.value = `wh_${w.remonline_id}`;
+    opt.textContent = w.title;
+    sortByEl.appendChild(opt);
+  }
+  
+  // Восстанавливаем выбранное значение если оно еще существует
+  if (Array.from(sortByEl.options).some(opt => opt.value === currentValue)) {
+    sortByEl.value = currentValue;
+  }
+}
 
 let state = {
   page: 1,
   size: 50,
   totalLoaded: 0,
+  totalPages: 1,
   currentProducts: [],
   filters: {
     categories: [],
@@ -31,6 +97,11 @@ let state = {
 const loader = document.getElementById('loader');
 const bodyEl = document.getElementById('productsBody');
 const pageInfo = document.getElementById('pageInfo');
+const autoSyncBtn = document.getElementById('autoSyncBtn');
+const autoSyncProgress = document.getElementById('autoSyncProgress');
+const statusEl = document.createElement('small');
+statusEl.className = 'text-muted ms-2';
+autoSyncBtn?.parentElement?.appendChild(statusEl);
 const categoryFilterEl = document.getElementById('categoryFilter');
 const warehouseFilterEl = document.getElementById('warehouseFilter');
 const priceMinEl = document.getElementById('priceMin');
@@ -50,15 +121,104 @@ document.getElementById('pageSize').addEventListener('change', (e) => {
 });
 
 document.getElementById('reloadBtn').addEventListener('click', () => {
-  state.page = 1;
   loadPage();
 });
 
+// Автосинхронизация всех складов
+let autoSyncPollTimer = null;
+let autoSyncStatusTimer = null;
+autoSyncBtn?.addEventListener('click', async () => {
+  try {
+    autoSyncBtn.disabled = true;
+    await fetch(`${API_BASE}/stocks/sync_all`, { method: 'POST' });
+    startAutoSyncPolling();
+  } catch (e) {
+    console.error(e);
+    alert('Не удалось запустить синхронизацию');
+    autoSyncBtn.disabled = false;
+  }
+});
+
+function formatStatusText(st) {
+  const status = st?.status || 'idle';
+  const total = Number(st?.total || 0);
+  const processed = Number(st?.processed || 0);
+  if (status === 'running') return `Синхронизация: ${processed}/${total}`;
+  if (status === 'finished') return 'Синхронизация завершена';
+  if (status === 'failed') return 'Синхронизация упала';
+  return 'Синхронизация: не запущена';
+}
+
+async function pollSyncProgressOnce() {
+  try {
+    const resp = await fetch(`${API_BASE}/stocks/sync_progress`);
+    if (!resp.ok) throw new Error('progress http');
+    const json = await resp.json();
+    const st = json?.data || {};
+    const processed = Number(st.processed || 0);
+    const total = Number(st.total || 0) || 1;
+    const pct = Math.max(0, Math.min(100, Math.round((processed / total) * 100)));
+    if (autoSyncProgress) {
+      autoSyncProgress.style.width = pct + '%';
+      autoSyncProgress.setAttribute('aria-valuenow', String(pct));
+    }
+    if (statusEl) statusEl.textContent = formatStatusText(st);
+    const running = st.status === 'running';
+    if (autoSyncBtn) autoSyncBtn.disabled = !!running;
+    // если синхронизация уже шла до перезагрузки, включим частый поллинг
+    if (running && !autoSyncPollTimer) {
+      startAutoSyncPolling();
+    }
+    return st;
+  } catch (e) {
+    // quiet
+    return null;
+  }
+}
+
+function startAutoSyncPolling() {
+  clearInterval(autoSyncPollTimer);
+  autoSyncPollTimer = setInterval(async () => {
+    const st = await pollSyncProgressOnce();
+    if (!st) return;
+    if (st.status === 'finished' || st.status === 'failed') {
+      clearInterval(autoSyncPollTimer);
+      autoSyncBtn && (autoSyncBtn.disabled = false);
+      state.page = 1; await loadPage();
+    }
+  }, 1000);
+}
+
+function startPermanentStatusPolling() {
+  clearInterval(autoSyncStatusTimer);
+  autoSyncStatusTimer = setInterval(pollSyncProgressOnce, 5000);
+}
+
+startPermanentStatusPolling();
+// Первичная инициализация статуса сразу после загрузки страницы
+pollSyncProgressOnce();
+
 document.getElementById('prevBtn').addEventListener('click', () => {
-  if (state.page > 1) { state.page -= 1; loadPage(); }
+  if (state.page > 1 && !state.isLoading) {
+    state.page -= 1;
+    loadPage(state.filters.warehouses.length > 0 || 
+             state.filters.categories.length > 0 || 
+             state.filters.priceMin !== null || 
+             state.filters.priceMax !== null || 
+             state.filters.stockMin !== null || 
+             state.filters.stockMax !== null);
+  }
 });
 document.getElementById('nextBtn').addEventListener('click', () => {
-  state.page += 1; loadPage();
+  if (state.hasMore && !state.isLoading) {
+    state.page += 1;
+    loadPage(state.filters.warehouses.length > 0 || 
+             state.filters.categories.length > 0 || 
+             state.filters.priceMin !== null || 
+             state.filters.priceMax !== null || 
+             state.filters.stockMin !== null || 
+             state.filters.stockMax !== null);
+  }
 });
 
 document.getElementById('searchInput').addEventListener('input', debounce(() => {
@@ -73,7 +233,8 @@ function debounce(fn, ms) {
 // Применение/сброс фильтров
 applyBtn?.addEventListener('click', () => {
   readFiltersFromUI();
-  applyAndRender();
+  state.page = 1;
+  loadPage(true); // Используем серверные фильтры
 });
 
 resetBtn?.addEventListener('click', () => {
@@ -88,7 +249,8 @@ resetBtn?.addEventListener('click', () => {
   if (sortOrderEl) sortOrderEl.value = 'desc';
   // Сброс состояния
   state.filters = { categories: [], warehouses: [], priceMin: null, priceMax: null, stockMin: null, stockMax: null, sortBy: 'name', sortOrder: 'desc' };
-  applyAndRender();
+  state.page = 1;
+  loadPage(false); // Загружаем без фильтров
 });
 
 async function fetchJson(url) {
@@ -97,17 +259,41 @@ async function fetchJson(url) {
   return res.json();
 }
 
+function updateTableHeaders(warehousesToShow) {
+  const tableHeader = document.querySelector('thead tr');
+  if (!tableHeader) return;
+  
+  // Удаляем старые заголовки складов
+  const warehouseHeaders = tableHeader.querySelectorAll('.warehouse-col');
+  warehouseHeaders.forEach(header => header.remove());
+  
+  // Добавляем новые заголовки складов
+  for (const w of warehousesToShow) {
+    const th = document.createElement('th');
+    th.className = 'warehouse-col';
+    th.setAttribute('data-wh', w.remonline_id);
+    th.textContent = w.title;
+    tableHeader.appendChild(th);
+  }
+}
+
 function renderSummary(productsWithStocks) {
   const container = document.getElementById('summary');
   container.innerHTML = '';
-  const totals = Object.fromEntries(TARGET_WAREHOUSES.map(w => [w.remonline_id, 0]));
+  
+  // Определяем какие склады показывать: выбранные в фильтре или все
+  const warehousesToShow = state.filters.warehouses.length > 0 
+    ? TARGET_WAREHOUSES.filter(w => state.filters.warehouses.includes(w.remonline_id))
+    : TARGET_WAREHOUSES;
+  
+  const totals = Object.fromEntries(warehousesToShow.map(w => [w.remonline_id, 0]));
   for (const p of productsWithStocks) {
-    for (const w of TARGET_WAREHOUSES) {
+    for (const w of warehousesToShow) {
       const qty = p.stocks[w.remonline_id] || 0;
       totals[w.remonline_id] += qty;
     }
   }
-  for (const w of TARGET_WAREHOUSES) {
+  for (const w of warehousesToShow) {
     const badge = document.createElement('span');
     badge.className = 'badge text-bg-light';
     badge.textContent = `${w.title}: ${totals[w.remonline_id]}`;
@@ -118,6 +304,15 @@ function renderSummary(productsWithStocks) {
 function renderTable(productsWithStocks) {
   bodyEl.innerHTML = '';
   const fragment = document.createDocumentFragment();
+  
+  // Определяем какие склады показывать: выбранные в фильтре или все
+  const warehousesToShow = state.filters.warehouses.length > 0 
+    ? TARGET_WAREHOUSES.filter(w => state.filters.warehouses.includes(w.remonline_id))
+    : TARGET_WAREHOUSES;
+  
+  // Обновляем заголовки таблицы
+  updateTableHeaders(warehousesToShow);
+  
   for (const p of productsWithStocks) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -144,7 +339,7 @@ function renderTable(productsWithStocks) {
       <td class="price-col text-end">${formatPrice(p.prices['377836'])}</td>
       <td class="price-col text-end">${formatPrice(p.prices['555169'])}</td>
       <td class="total-col text-end">${formatPrice(p.totalStock)}</td>
-      ${TARGET_WAREHOUSES.map(w => `<td class="warehouse-col">${p.stocks[w.remonline_id] ?? 0}</td>`).join('')}
+      ${warehousesToShow.map(w => `<td class="warehouse-col">${p.stocks[w.remonline_id] ?? 0}</td>`).join('')}
     `;
     fragment.appendChild(tr);
   }
@@ -249,11 +444,47 @@ function formatDate(iso) {
   } catch { return '-'; }
 }
 
-async function loadPage() {
+async function loadPage(useFilters = false) {
+  // Обычная пагинация - skip рассчитывается по номеру страницы
   const skip = (state.page - 1) * state.size;
   const name = encodeURIComponent(document.getElementById('searchInput').value.trim());
-  const nameQuery = name ? `&name=${name}` : '';
-  const url = `${API_BASE}/products/?skip=${skip}&limit=${state.size}${nameQuery}`;
+  
+  let url;
+  if (useFilters) {
+    // Используем новый endpoint с фильтрами
+    const params = new URLSearchParams();
+    params.append('skip', skip);
+    params.append('limit', state.size);
+    
+    if (name) params.append('name', name);
+    
+    const f = state.filters;
+    if (f.categories.length > 0) {
+      params.append('category', f.categories[0]); // Пока поддерживаем только одну категорию
+    }
+    if (f.warehouses.length > 0) {
+      params.append('warehouse_ids', f.warehouses.join(','));
+    }
+    if (f.priceMin != null) params.append('price_min', f.priceMin);
+    if (f.priceMax != null) params.append('price_max', f.priceMax);
+    if (f.stockMin != null) params.append('stock_min', f.stockMin);
+    if (f.stockMax != null) params.append('stock_max', f.stockMax);
+    // Преобразуем значения сортировки для API
+    let sortBy = f.sortBy || 'name';
+    if (sortBy === 'total') sortBy = 'total_stock';
+    if (sortBy.startsWith('wh_')) {
+      // Уже в правильном формате для API
+    }
+    params.append('sort_by', sortBy);
+    params.append('sort_order', f.sortOrder || 'desc');
+    
+    url = `${API_BASE}/products/filtered?${params.toString()}`;
+  } else {
+    // Используем старый endpoint без фильтров
+    const nameQuery = name ? `&name=${name}` : '';
+    url = `${API_BASE}/products/?skip=${skip}&limit=${state.size}${nameQuery}`;
+  }
+  
   if (state.isLoading) return;
   state.isLoading = true;
   loader.style.display = 'inline-block';
@@ -266,29 +497,55 @@ async function loadPage() {
     const queue = products.map(p => async () => ({ product: p, stocks: await loadStocksForProduct(p.id) }));
     const results = await runLimited(queue, concurrency);
 
-    const productsWithStocks = results.map(({ product, stocks }) => ({
-      id: product.id,
-      remonline_id: product.remonline_id,
-      name: product.name,
-      sku: product.sku,
-      category: product.category,
-      price: product.price,
-      updated_at: product.updated_at,
-      stocks: stocks,
-      images: normalizeImageUrls(product.images_json),
-      prices: normalizePrices(product.prices_json),
-      totalStock: Object.values(stocks || {}).reduce((a, b) => a + (Number(b) || 0), 0),
-    }));
+    const productsWithStocks = results.map(({ product, stocks }) => {
+      // Определяем какие склады учитывать для общего остатка
+      const warehousesToCount = state.filters.warehouses.length > 0 
+        ? state.filters.warehouses
+        : TARGET_WAREHOUSES.map(w => w.remonline_id);
+      
+      const totalStock = warehousesToCount.reduce((sum, whId) => sum + (Number(stocks[whId]) || 0), 0);
+      
+      return {
+        id: product.id,
+        remonline_id: product.remonline_id,
+        name: product.name,
+        sku: product.sku,
+        category: product.category,
+        price: product.price,
+        updated_at: product.updated_at,
+        stocks: stocks,
+        images: normalizeImageUrls(product.images_json),
+        prices: normalizePrices(product.prices_json),
+        totalStock: totalStock,
+      };
+    });
 
-    // При первой загрузке сбрасываем коллекцию
-    if (state.page === 1) state.allProducts = [];
-    state.allProducts = state.allProducts.concat(productsWithStocks);
+    // Обычная пагинация - заменяем данные на каждой странице
+    state.allProducts = productsWithStocks;
     state.currentProducts = state.allProducts;
-    state.totalLoaded = state.allProducts.length;
+    state.totalLoaded = productsWithStocks.length;
     updateCategoryOptions(state.currentProducts);
-    state.hasMore = products.length === state.size;
-    // Применяем фильтры и рендерим
-    applyAndRender();
+    
+    if (useFilters) {
+      // При использовании фильтров, hasMore определяется по total из ответа
+      const total = productsResp?.total || 0;
+      state.hasMore = (skip + products.length) < total;
+      state.totalPages = Math.ceil(total / state.size);
+    } else {
+      // Есть ещё данные, если получили полную пачку (равную размеру страницы)
+      state.hasMore = products.length === state.size;
+      state.totalPages = state.hasMore ? state.page + 1 : state.page; // Примерная оценка
+    }
+    
+    // Применяем фильтры и рендерим (только если не используем серверные фильтры)
+    if (useFilters) {
+      renderSummary(productsWithStocks);
+      renderTable(productsWithStocks);
+      const total = productsResp?.total || 0;
+      pageInfo.textContent = `Найдено ${total} поз., страница ${state.page} из ${state.totalPages}`;
+    } else {
+      applyAndRender();
+    }
   } catch (e) {
     console.error(e);
     alert('Ошибка загрузки данных');
@@ -329,7 +586,9 @@ function readFiltersFromUI() {
 
 function getMultiValues(selectEl) {
   if (!selectEl) return [];
-  return Array.from(selectEl.selectedOptions).map(o => o.value).filter(v => v !== '');
+  const values = Array.from(selectEl.selectedOptions).map(o => o.value).filter(v => v !== '');
+  // Если в мультиселекте ничего не выбрано, возвращаем пустой массив
+  return values;
 }
 
 function numOrNull(v) {
@@ -344,7 +603,8 @@ function applyAndRender() {
   const sorted = sortProducts(filtered);
   renderSummary(sorted);
   renderTable(sorted);
-  pageInfo.textContent = `Загружено ${state.totalLoaded} поз., в выборке: ${sorted.length}${state.hasMore ? ' (есть ещё)' : ''}`;
+  const pageText = state.totalPages > 1 ? `, страница ${state.page}` : '';
+  pageInfo.textContent = `Загружено ${state.totalLoaded} поз., в выборке: ${sorted.length}${pageText}`;
 }
 
 function filterProducts(products) {
@@ -388,18 +648,7 @@ function sortProducts(products) {
   return copy;
 }
 
-// Бесконечная прокрутка
-function onScrollContainer() {
-  if (!tableContainer || state.isLoading || !state.hasMore) return;
-  const threshold = 120; // px до низа
-  const scrollBottom = tableContainer.scrollHeight - tableContainer.scrollTop - tableContainer.clientHeight;
-  if (scrollBottom <= threshold) {
-    state.page += 1;
-    loadPage();
-  }
-}
-
-tableContainer?.addEventListener('scroll', debounce(onScrollContainer, 150));
+// Удалена бесконечная прокрутка - используется обычная пагинация
 
 // Контекстное меню на колонке «Товар»
 function attachProductMenus() {
@@ -440,7 +689,7 @@ function attachProductMenus() {
           item.classList.add('disabled');
           item.classList.add('btn-progress');
           await refreshProductWithProgress(productId, item);
-          state.page = 1; state.hasMore = true; state.allProducts = []; await loadPage();
+          await loadPage();
         } catch (err) {
           alert('Не удалось обновить товар');
         } finally {
@@ -464,15 +713,38 @@ async function refreshProductWithProgress(productId, buttonEl) {
   const warehouses = (data?.data || []).filter(w => w?.remonline_id);
   const total = warehouses.length || 1;
   let done = 0;
+  const start = Date.now();
+  let lastEtaTimeout = null;
 
-  for (const wh of warehouses) {
-    try {
-      await fetch(`${API_BASE}/products/${productId}/refresh?warehouse_id=${encodeURIComponent(wh.remonline_id)}`, { method: 'POST' });
-    } catch {}
-    done += 1;
-    const pct = Math.min(100, Math.round((done / total) * 100));
-    buttonEl.style.setProperty('--progress', pct + '%');
+  // Обработка пачками по 3 запроса в секунду
+  const batchSize = 3;
+  for (let i = 0; i < warehouses.length; i += batchSize) {
+    const batch = warehouses.slice(i, i + batchSize);
+    const requests = batch.map(async (wh) => {
+      try {
+        await fetch(`${API_BASE}/products/${productId}/refresh?warehouse_id=${encodeURIComponent(wh.remonline_id)}`, { method: 'POST' });
+      } catch {}
+      // По факту завершения запроса — увеличиваем прогресс и ETA
+      done += 1;
+      const pct = Math.min(100, Math.round((done / total) * 100));
+      buttonEl.style.setProperty('--progress', pct + '%');
+
+      const elapsedMs = Date.now() - start;
+      const avgPerItem = elapsedMs / Math.max(1, done);
+      const remaining = Math.max(0, Math.round(avgPerItem * (total - done)));
+      const mm = String(Math.floor(remaining / 60000)).padStart(2, '0');
+      const ss = String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0');
+      buttonEl.setAttribute('data-eta', `${mm}:${ss}`);
+    });
+
+    await Promise.all(requests);
+    // Пауза 1 секунда между пачками, если ещё остались склады
+    if (i + batchSize < warehouses.length) {
+      await new Promise(r => setTimeout(r, 1000));
+    }
   }
+  // По завершении ETA убираем
+  buttonEl.removeAttribute('data-eta');
 }
 
 async function loadStocksForProduct(productId) {
@@ -483,9 +755,10 @@ async function loadStocksForProduct(productId) {
   for (const it of items) {
     const whRemId = it?.warehouse?.remonline_id;
     if (!whRemId) continue;
-    if (!TARGET_WAREHOUSES.some(w => w.remonline_id === whRemId)) continue;
+    // Загружаем все остатки, не фильтруя по TARGET_WAREHOUSES
     map[whRemId] = (map[whRemId] || 0) + (it.available_quantity ?? 0);
   }
+  // Убеждаемся что у всех целевых складов есть значения (даже если 0)
   for (const w of TARGET_WAREHOUSES) {
     if (map[w.remonline_id] == null) map[w.remonline_id] = 0;
   }
@@ -544,5 +817,8 @@ function attachImageHoverPreview() {
   });
 }
 
-loadPage();
+// Инициализация: загружаем склады, затем данные
+loadWarehouses().then(() => {
+  loadPage();
+});
 
