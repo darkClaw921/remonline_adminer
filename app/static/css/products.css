@@ -50,3 +50,7 @@ select[multiple] { min-height: 100px; }
 /* ETA справа поверх линии прогресса */
 .btn-progress::before { content: attr(data-eta); position: absolute; right: 6px; bottom: 2px; font-size: 10px; color: #0d6efd; line-height: 1; }
 
+/* Сортируемые заголовки */
+.table thead th.sortable { cursor: pointer; }
+.table thead th.sortable:hover { background: #f8f9fa; }
+

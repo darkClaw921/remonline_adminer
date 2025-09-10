@@ -145,10 +145,12 @@ async function loadWarehouses() {
       title: w.name,
     }));
     
-    // Обновляем UI элементы
-    document.getElementById('wh-list').textContent = TARGET_WAREHOUSES.map(w => `${w.title} (${w.remonline_id})`).join(', ');
+    // Обновляем UI элементы (индикатор списка складов мог быть удалён из макета)
+    const whListEl = document.getElementById('wh-list');
+    if (whListEl) whListEl.textContent = TARGET_WAREHOUSES.map(w => `${w.title} (${w.remonline_id})`).join(', ');
     updateWarehouseFilterOptions();
-    updateSortOptions();
+    // после загрузки складов отметим сортируемые заголовки
+    markSortableHeaders();
   } catch (e) {
     console.error('Failed to load warehouses:', e);
     // Fallback к хардкоду при ошибке
@@ -157,9 +159,11 @@ async function loadWarehouses() {
       { remonline_id: 52226,  title: '05. Виртуальный склад' },
       { remonline_id: 37746,  title: '01. Запчасти Ростов' },
     ];
-    document.getElementById('wh-list').textContent = TARGET_WAREHOUSES.map(w => `${w.title} (${w.remonline_id})`).join(', ');
+    const whListEl = document.getElementById('wh-list');
+    if (whListEl) whListEl.textContent = TARGET_WAREHOUSES.map(w => `${w.title} (${w.remonline_id})`).join(', ');
     ensureWarehouseVisibilityKeys();
     buildColumnsSettingsModal();
+    markSortableHeaders();
   }
 }
 
@@ -341,28 +345,7 @@ if (columnsModalEl) {
   });
 }
 
-document.getElementById('prevBtn').addEventListener('click', () => {
-  if (state.page > 1 && !state.isLoading) {
-    state.page -= 1;
-    loadPage(state.filters.warehouses.length > 0 || 
-             state.filters.categories.length > 0 || 
-             state.filters.priceMin !== null || 
-             state.filters.priceMax !== null || 
-             state.filters.stockMin !== null || 
-             state.filters.stockMax !== null);
-  }
-});
-document.getElementById('nextBtn').addEventListener('click', () => {
-  if (state.hasMore && !state.isLoading) {
-    state.page += 1;
-    loadPage(state.filters.warehouses.length > 0 || 
-             state.filters.categories.length > 0 || 
-             state.filters.priceMin !== null || 
-             state.filters.priceMax !== null || 
-             state.filters.stockMin !== null || 
-             state.filters.stockMax !== null);
-  }
-});
+// Обработчики prevBtn/nextBtn удалены - используется числовая пагинация
 
 document.getElementById('searchInput').addEventListener('input', debounce(() => {
   state.page = 1;
@@ -388,8 +371,6 @@ resetBtn?.addEventListener('click', () => {
   if (priceMaxEl) priceMaxEl.value = '';
   if (stockMinEl) stockMinEl.value = '';
   if (stockMaxEl) stockMaxEl.value = '';
-  if (sortByEl) sortByEl.value = 'name';
-  if (sortOrderEl) sortOrderEl.value = 'desc';
   // Сброс состояния
   state.filters = { categories: [], warehouses: [], priceMin: null, priceMax: null, stockMin: null, stockMax: null, sortBy: 'name', sortOrder: 'desc' };
   state.page = 1;
@@ -420,31 +401,11 @@ function updateTableHeaders(warehousesToShow) {
   }
   // Применяем настройки видимости после перестройки шапки
   applyColumnVisibility();
+  // помечаем сортируемые заголовки
+  markSortableHeaders();
 }
 
-function renderSummary(productsWithStocks) {
-  const container = document.getElementById('summary');
-  container.innerHTML = '';
-  
-  // Определяем какие склады показывать: выбранные в фильтре или все
-  const warehousesToShow = state.filters.warehouses.length > 0 
-    ? TARGET_WAREHOUSES.filter(w => state.filters.warehouses.includes(w.remonline_id))
-    : TARGET_WAREHOUSES;
-  
-  const totals = Object.fromEntries(warehousesToShow.map(w => [w.remonline_id, 0]));
-  for (const p of productsWithStocks) {
-    for (const w of warehousesToShow) {
-      const qty = p.stocks[w.remonline_id] || 0;
-      totals[w.remonline_id] += qty;
-    }
-  }
-  for (const w of warehousesToShow) {
-    const badge = document.createElement('span');
-    badge.className = 'badge text-bg-light';
-    badge.textContent = `${w.title}: ${totals[w.remonline_id]}`;
-    container.appendChild(badge);
-  }
-}
+// renderSummary удалён - элемент summary больше не используется
 
 function renderTable(productsWithStocks) {
   bodyEl.innerHTML = '';
@@ -615,14 +576,15 @@ async function loadPage(useFilters = false) {
     if (f.priceMax != null) params.append('price_max', f.priceMax);
     if (f.stockMin != null) params.append('stock_min', f.stockMin);
     if (f.stockMax != null) params.append('stock_max', f.stockMax);
-    // Преобразуем значения сортировки для API
+    // Преобразуем значения сортировки для API (только поддерживаемые ключи)
     let sortBy = f.sortBy || 'name';
+    const sortOrder = f.sortOrder || 'desc';
+    const serverSortable = (['name','category','price','total'].includes(sortBy) || sortBy.startsWith('wh_'));
     if (sortBy === 'total') sortBy = 'total_stock';
-    if (sortBy.startsWith('wh_')) {
-      // Уже в правильном формате для API
+    if (serverSortable) {
+      params.append('sort_by', sortBy);
+      params.append('sort_order', sortOrder);
     }
-    params.append('sort_by', sortBy);
-    params.append('sort_order', f.sortOrder || 'desc');
     
     url = `${API_BASE}/products/filtered?${params.toString()}`;
   } else {
@@ -683,14 +645,15 @@ async function loadPage(useFilters = false) {
       state.totalPages = state.hasMore ? state.page + 1 : state.page; // Примерная оценка
     }
     
-    // Применяем фильтры и рендерим (только если не используем серверные фильтры)
+    // Всегда применяем клиентскую сортировку/фильтрацию для консистентности отображения
+    const toRender = sortProducts(productsWithStocks);
+    renderTable(toRender);
+    renderPagination();
     if (useFilters) {
-      renderSummary(productsWithStocks);
-      renderTable(productsWithStocks);
       const total = productsResp?.total || 0;
-      pageInfo.textContent = `Найдено ${total} поз., страница ${state.page} из ${state.totalPages}`;
+      pageInfo.textContent = formatPageInfo();
     } else {
-      applyAndRender();
+      pageInfo.textContent = formatPageInfo();
     }
   } catch (e) {
     console.error(e);
@@ -726,8 +689,7 @@ function readFiltersFromUI() {
   state.filters.priceMax = numOrNull(priceMaxEl?.value);
   state.filters.stockMin = numOrNull(stockMinEl?.value);
   state.filters.stockMax = numOrNull(stockMaxEl?.value);
-  state.filters.sortBy = sortByEl?.value || 'name';
-  state.filters.sortOrder = sortOrderEl?.value || 'desc';
+  // sortBy/sortOrder управляются кликами по заголовкам таблицы
 }
 
 function getMultiValues(selectEl) {
@@ -747,10 +709,81 @@ function applyAndRender() {
   const products = state.currentProducts || [];
   const filtered = filterProducts(products);
   const sorted = sortProducts(filtered);
-  renderSummary(sorted);
   renderTable(sorted);
-  const pageText = state.totalPages > 1 ? `, страница ${state.page}` : '';
-  pageInfo.textContent = `Загружено ${state.totalLoaded} поз., в выборке: ${sorted.length}${pageText}`;
+  renderPagination();
+  pageInfo.textContent = formatPageInfo();
+}
+
+function formatPageInfo() {
+  const totalPages = Math.max(1, state.totalPages || 1);
+  return `< ${state.page} ... > ${totalPages}`;
+}
+
+function renderPagination() {
+  const container = document.getElementById('pagination');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const totalPages = Math.max(1, state.totalPages || 1);
+  const current = Math.min(state.page, totalPages);
+
+  function createBtn(label, disabled, onClick) {
+    const btn = document.createElement('button');
+    btn.className = `btn btn-sm ${disabled ? 'btn-outline-secondary' : 'btn-secondary'}`;
+    btn.textContent = label;
+    if (disabled) btn.disabled = true;
+    if (onClick && !disabled) btn.addEventListener('click', onClick);
+    return btn;
+  }
+
+  // Prev
+  container.appendChild(createBtn('<', current <= 1, () => {
+    if (state.page > 1) { state.page -= 1; loadPage(state.filters.warehouses.length > 0 || state.filters.categories.length > 0); }
+  }));
+
+  // Всегда показываем 1, текущую ±2, и последнюю страницу
+  const pagesToShow = new Set();
+  
+  // Всегда добавляем первую страницу
+  pagesToShow.add(1);
+  
+  // Добавляем текущую ±2 страницы
+  for (let i = Math.max(1, current - 2); i <= Math.min(totalPages, current + 2); i++) {
+    pagesToShow.add(i);
+  }
+  
+  // Всегда добавляем последнюю страницу
+  if (totalPages > 1) {
+    pagesToShow.add(totalPages);
+  }
+  
+  const sortedPages = Array.from(pagesToShow).sort((a, b) => a - b);
+  
+  for (let i = 0; i < sortedPages.length; i++) {
+    const pageNum = sortedPages[i];
+    const prevPageNum = i > 0 ? sortedPages[i - 1] : 0;
+    
+    // Добавляем многоточие если есть пропуск страниц
+    if (pageNum - prevPageNum > 1) {
+      const ell = document.createElement('span');
+      ell.className = 'text-muted px-1';
+      ell.textContent = '...';
+      container.appendChild(ell);
+    }
+    
+    // Добавляем кнопку страницы
+    const isActive = pageNum === current;
+    const btn = document.createElement('button');
+    btn.className = `btn btn-sm ${isActive ? 'btn-primary' : 'btn-outline-secondary'}`;
+    btn.textContent = String(pageNum);
+    if (!isActive) btn.addEventListener('click', () => { state.page = pageNum; loadPage(state.filters.warehouses.length > 0 || state.filters.categories.length > 0); });
+    container.appendChild(btn);
+  }
+
+  // Next
+  container.appendChild(createBtn('>', current >= totalPages, () => {
+    if (state.page < totalPages) { state.page += 1; loadPage(state.filters.warehouses.length > 0 || state.filters.categories.length > 0); }
+  }));
 }
 
 function filterProducts(products) {
@@ -967,4 +1000,48 @@ function attachImageHoverPreview() {
 loadWarehouses().then(() => {
   loadPage();
 });
+
+// Сортировка по клику на заголовки
+const theadEl = document.querySelector('thead');
+if (theadEl) {
+  theadEl.addEventListener('click', (e) => {
+    const th = e.target.closest('th');
+    if (!th || !theadEl.contains(th)) return;
+    const key = getSortKeyForHeader(th);
+    if (!key) return;
+    if (state.filters.sortBy === key) {
+      state.filters.sortOrder = (state.filters.sortOrder === 'asc') ? 'desc' : 'asc';
+    } else {
+      state.filters.sortBy = key;
+      state.filters.sortOrder = 'asc';
+    }
+    applyAndRender();
+  });
+}
+
+function getSortKeyForHeader(th) {
+  if (th.classList.contains('photos-col')) return null;
+  if (th.classList.contains('name-col')) return 'name';
+  if (th.classList.contains('category-col')) return 'category';
+  if (th.classList.contains('price-base-col')) return 'price';
+  if (th.classList.contains('price-col')) {
+    const pid = th.getAttribute('data-price');
+    if (pid) return `price_${pid}`;
+  }
+  if (th.classList.contains('total-col')) return 'total';
+  if (th.classList.contains('warehouse-col')) {
+    const wid = th.getAttribute('data-wh');
+    if (wid) return `wh_${wid}`;
+  }
+  return null;
+}
+
+function markSortableHeaders() {
+  const ths = document.querySelectorAll('thead th');
+  ths.forEach(th => {
+    const key = getSortKeyForHeader(th);
+    if (key) th.classList.add('sortable');
+    else th.classList.remove('sortable');
+  });
+}
 
