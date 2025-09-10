@@ -34,6 +34,54 @@
               <small class="text-muted">Склады: <span id="wh-list"></span></small>
             </div>
           </div>
+          <div class="row g-2 align-items-center mt-2">
+            <div class="col-6 col-md-3">
+              <select id="categoryFilter" class="form-select form-select-sm" multiple>
+                <option value="">Все категории</option>
+              </select>
+            </div>
+            <div class="col-6 col-md-3">
+              <select id="warehouseFilter" class="form-select form-select-sm" multiple>
+                <option value="2272079">29. Склад Китай</option>
+                <option value="52226">05. Виртуальный склад</option>
+                <option value="37746">01. Запчасти Ростов</option>
+              </select>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="input-group input-group-sm">
+                <span class="input-group-text">Цена</span>
+                <input id="priceMin" type="number" step="0.01" class="form-control" placeholder="от">
+                <input id="priceMax" type="number" step="0.01" class="form-control" placeholder="до">
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="input-group input-group-sm">
+                <span class="input-group-text">Остаток</span>
+                <input id="stockMin" type="number" step="1" class="form-control" placeholder="от">
+                <input id="stockMax" type="number" step="1" class="form-control" placeholder="до">
+              </div>
+            </div>
+            <div class="col-12 col-md-6">
+              <div class="input-group input-group-sm">
+                <span class="input-group-text">Сортировка</span>
+                <select id="sortBy" class="form-select">
+                  <option value="name">Название</option>
+                  <option value="category">Категория</option>
+                  <option value="price">Цена</option>
+                  <option value="total">Общий остаток</option>
+                  <option value="wh_2272079">29. Склад Китай</option>
+                  <option value="wh_52226">05. Виртуальный склад</option>
+                  <option value="wh_37746">01. Запчасти Ростов</option>
+                </select>
+                <select id="sortOrder" class="form-select" style="max-width: 160px;">
+                  <option value="desc">По убыванию</option>
+                  <option value="asc">По возрастанию</option>
+                </select>
+                <button id="applyFilters" class="btn btn-primary">Применить</button>
+                <button id="resetFilters" class="btn btn-outline-secondary">Сброс</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -48,7 +96,7 @@
         </div>
       </div>
 
-      <div class="table-responsive" style="max-height: calc(100vh - 220px);">
+      <div id="tableContainer" class="table-responsive" style="max-height: calc(100vh - 220px);">
         <table class="table table-bordered table-hover table-sm align-middle">
           <thead>
             <tr>

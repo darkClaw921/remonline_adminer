@@ -21,3 +21,22 @@ body { padding-top: 20px; }
 .img-hover-preview { position: fixed; pointer-events: none; z-index: 9999; background: #fff; border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.25); padding: 6px; }
 .img-hover-preview img { display: block; max-width: 480px; max-height: 480px; width: auto; height: auto; border-radius: 4px; }
 
+/* Фильтры */
+.input-group-sm > .btn { padding-left: .6rem; padding-right: .6rem; }
+select[multiple] { min-height: 100px; }
+
+/* Контейнер таблицы для скролла */
+#tableContainer { overflow-y: auto; }
+
+/* Контекстное меню для колонки Товар */
+.product-menu-wrapper { position: relative; }
+.product-menu { position: absolute; bottom: 100%; left: 0; transform: translateY(-6px); z-index: 1000; background: #fff; border: 1px solid rgba(0,0,0,.12); box-shadow: 0 6px 20px rgba(0,0,0,.15); border-radius: .5rem; min-width: 220px; padding: .25rem; display: none; }
+.product-menu.show { display: block; }
+.product-menu .list-group-item { border: 0; padding: .35rem .6rem; cursor: pointer; }
+.product-menu .list-group-item:hover { background: #f6f7f9; }
+.product-menu .list-group-item.disabled { opacity: .6; pointer-events: none; }
+
+/* Кнопка с прогресс-линией */
+.btn-progress { position: relative; overflow: hidden; }
+.btn-progress::after { content: ""; position: absolute; left: 0; right: auto; bottom: 0; height: 2px; width: var(--progress, 0%); background: #0d6efd; transition: width .15s ease; }
+
