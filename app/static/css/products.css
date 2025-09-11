@@ -51,6 +51,51 @@ select[multiple] { min-height: 100px; }
 .btn-progress::before { content: attr(data-eta); position: absolute; right: 6px; bottom: 2px; font-size: 10px; color: #0d6efd; line-height: 1; }
 
 /* Сортируемые заголовки */
-.table thead th.sortable { cursor: pointer; }
+.table thead th.sortable { 
+  cursor: pointer; 
+}
 .table thead th.sortable:hover { background: #f8f9fa; }
+
+/* Стрелочка сортировки */
+.sort-arrow { 
+  font-size: 14px; 
+  line-height: 1; 
+  color: #ccc; 
+  cursor: pointer; 
+  user-select: none;
+  transition: color 0.2s ease;
+  display: inline;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.sort-arrow:hover { color: #666; }
+.sort-arrow.active { color: #007bff; }
+
+/* Drag and drop стили */
+.table thead th[draggable="true"] {
+  cursor: grab;
+  user-select: none;
+}
+
+.table thead th[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.table thead th.dragging {
+  opacity: 0.5;
+  transform: rotate(5deg);
+  z-index: 1000;
+}
+
+.table thead th.drag-over {
+  background: #e3f2fd !important;
+  border-left: 3px solid #2196f3;
+  transition: all 0.2s ease;
+}
+
+.table thead th.drag-over-right {
+  background: #e3f2fd !important;
+  border-right: 3px solid #2196f3;
+  transition: all 0.2s ease;
+}
 

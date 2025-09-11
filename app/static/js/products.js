@@ -34,6 +34,30 @@ function saveColumnVisibility(v) {
 
 let columnVisibility = loadColumnVisibility();
 
+// Настройки порядка столбцов (localStorage)
+const STORAGE_KEY_COLUMN_ORDER = 'columnOrder.v1';
+const DEFAULT_COLUMN_ORDER = [
+  'photos', 'name', 'category', 'price-base', 
+  'price-48388', 'price-97150', 'price-377836', 'price-555169', 
+  'total', 'wh-2272079', 'wh-52226', 'wh-37746'
+];
+
+function loadColumnOrder() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_COLUMN_ORDER);
+    if (!raw) return [...DEFAULT_COLUMN_ORDER];
+    return JSON.parse(raw);
+  } catch {
+    return [...DEFAULT_COLUMN_ORDER];
+  }
+}
+
+function saveColumnOrder(order) {
+  try { localStorage.setItem(STORAGE_KEY_COLUMN_ORDER, JSON.stringify(order)); } catch {}
+}
+
+let columnOrder = loadColumnOrder();
+
 function ensureWarehouseVisibilityKeys() {
   for (const w of TARGET_WAREHOUSES) {
     if (!(w.remonline_id in columnVisibility.warehouses)) {
@@ -77,6 +101,173 @@ function toggleColumnDisplay(nodeList, isVisible) {
   nodeList.forEach(el => {
     if (isVisible) el.classList.remove('d-none');
     else el.classList.add('d-none');
+  });
+}
+
+// Функции для управления порядком столбцов
+function applyColumnOrder() {
+  const headerRow = document.querySelector('thead tr');
+  const headers = Array.from(headerRow.querySelectorAll('th'));
+  
+  // Создаем карту заголовков по data-col
+  const headerMap = new Map();
+  headers.forEach(header => {
+    const colId = header.getAttribute('data-col');
+    if (colId) headerMap.set(colId, header);
+  });
+  
+  // Переставляем заголовки согласно сохраненному порядку
+  columnOrder.forEach(colId => {
+    const header = headerMap.get(colId);
+    if (header) {
+      headerRow.appendChild(header);
+    }
+  });
+  
+  // Переставляем ячейки в каждой строке тела таблицы
+  const bodyRows = document.querySelectorAll('tbody tr');
+  bodyRows.forEach(row => {
+    const cells = Array.from(row.querySelectorAll('td'));
+    const cellMap = new Map();
+    
+    cells.forEach(cell => {
+      const colId = cell.getAttribute('data-col');
+      if (colId) cellMap.set(colId, cell);
+    });
+    
+    columnOrder.forEach(colId => {
+      const cell = cellMap.get(colId);
+      if (cell) {
+        row.appendChild(cell);
+      }
+    });
+  });
+}
+
+// Drag and Drop функции
+let draggedElement = null;
+let draggedIndex = -1;
+
+function initDragAndDrop() {
+  const headers = document.querySelectorAll('thead th[draggable="true"]');
+  
+  headers.forEach((header, index) => {
+    header.addEventListener('dragstart', handleDragStart);
+    header.addEventListener('dragend', handleDragEnd);
+    header.addEventListener('dragover', handleDragOver);
+    header.addEventListener('dragenter', handleDragEnter);
+    header.addEventListener('dragleave', handleDragLeave);
+    header.addEventListener('drop', handleDrop);
+  });
+}
+
+function handleDragStart(e) {
+  draggedElement = this;
+  draggedIndex = Array.from(this.parentNode.children).indexOf(this);
+  this.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/html', this.outerHTML);
+}
+
+function handleDragEnd(e) {
+  this.classList.remove('dragging');
+  
+  // Очищаем все drag-over классы
+  document.querySelectorAll('thead th').forEach(th => {
+    th.classList.remove('drag-over', 'drag-over-right');
+  });
+  
+  draggedElement = null;
+  draggedIndex = -1;
+}
+
+function handleDragOver(e) {
+  if (e.preventDefault) {
+    e.preventDefault();
+  }
+  e.dataTransfer.dropEffect = 'move';
+  return false;
+}
+
+function handleDragEnter(e) {
+  if (this === draggedElement) return;
+  
+  const rect = this.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const isRightHalf = x > rect.width / 2;
+  
+  // Очищаем все drag-over классы
+  document.querySelectorAll('thead th').forEach(th => {
+    th.classList.remove('drag-over', 'drag-over-right');
+  });
+  
+  // Добавляем соответствующий класс
+  if (isRightHalf) {
+    this.classList.add('drag-over-right');
+  } else {
+    this.classList.add('drag-over');
+  }
+}
+
+function handleDragLeave(e) {
+  // Проверяем, что мы действительно покинули элемент
+  if (!this.contains(e.relatedTarget)) {
+    this.classList.remove('drag-over', 'drag-over-right');
+  }
+}
+
+function handleDrop(e) {
+  if (e.stopPropagation) {
+    e.stopPropagation();
+  }
+  
+  if (draggedElement !== this) {
+    const rect = this.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const isRightHalf = x > rect.width / 2;
+    const targetIndex = Array.from(this.parentNode.children).indexOf(this);
+    
+    // Перемещаем элемент в DOM
+    if (isRightHalf) {
+      this.parentNode.insertBefore(draggedElement, this.nextSibling);
+    } else {
+      this.parentNode.insertBefore(draggedElement, this);
+    }
+    
+    // Обновляем порядок столбцов
+    updateColumnOrder();
+    
+    // Применяем новый порядок к строкам данных
+    reorderTableCells();
+  }
+  
+  this.classList.remove('drag-over', 'drag-over-right');
+  return false;
+}
+
+function updateColumnOrder() {
+  const headers = document.querySelectorAll('thead th[data-col]');
+  columnOrder = Array.from(headers).map(header => header.getAttribute('data-col'));
+  saveColumnOrder(columnOrder);
+}
+
+function reorderTableCells() {
+  const bodyRows = document.querySelectorAll('tbody tr');
+  bodyRows.forEach(row => {
+    const cells = Array.from(row.querySelectorAll('td'));
+    const cellMap = new Map();
+    
+    cells.forEach(cell => {
+      const colId = cell.getAttribute('data-col');
+      if (colId) cellMap.set(colId, cell);
+    });
+    
+    columnOrder.forEach(colId => {
+      const cell = cellMap.get(colId);
+      if (cell) {
+        row.appendChild(cell);
+      }
+    });
   });
 }
 
@@ -396,13 +587,19 @@ function updateTableHeaders(warehousesToShow) {
     const th = document.createElement('th');
     th.className = 'warehouse-col';
     th.setAttribute('data-wh', w.remonline_id);
+    th.setAttribute('data-col', `wh-${w.remonline_id}`);
+    th.setAttribute('draggable', 'true');
     th.textContent = w.title;
     tableHeader.appendChild(th);
   }
   // Применяем настройки видимости после перестройки шапки
   applyColumnVisibility();
+  // Применяем порядок столбцов
+  applyColumnOrder();
   // помечаем сортируемые заголовки
   markSortableHeaders();
+  // Переинициализируем drag and drop
+  initDragAndDrop();
 }
 
 // renderSummary удалён - элемент summary больше не используется
@@ -422,10 +619,10 @@ function renderTable(productsWithStocks) {
   for (const p of productsWithStocks) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td class="photos-col">
+      <td class="photos-col" data-col="photos">
         <div class="thumbs">${(p.images || []).slice(0,3).map(u => `<img src="${escapeAttr(u.thumbnail || u)}" data-full="${escapeAttr(u.full || u)}" class="thumb" loading="lazy" alt="">`).join('')}</div>
       </td>
-      <td class="name-col">
+      <td class="name-col" data-col="name">
         <div class="product-menu-wrapper">
           <div class="name-wrap" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</div>
           <div class="sku">RemID: ${p.remonline_id ?? '-'} · SKU: ${escapeHtml(p.sku || '-')}</div>
@@ -438,14 +635,14 @@ function renderTable(productsWithStocks) {
           </div>
         </div>
       </td>
-      <td class="category-col">${escapeHtml(p.category || '-')}</td>
-      <td class="price-base-col">${p.price != null ? p.price : '-'}</td>
-      <td class="price-col" data-price="48388">${formatPrice(p.prices['48388'])}</td>
-      <td class="price-col" data-price="97150">${formatPrice(p.prices['97150'])}</td>
-      <td class="price-col" data-price="377836">${formatPrice(p.prices['377836'])}</td>
-      <td class="price-col" data-price="555169">${formatPrice(p.prices['555169'])}</td>
-      <td class="total-col">${formatPrice(p.totalStock)}</td>
-      ${warehousesToShow.map(w => `<td class="warehouse-col" data-wh="${w.remonline_id}">${p.stocks[w.remonline_id] ?? 0}</td>`).join('')}
+      <td class="category-col" data-col="category">${escapeHtml(p.category || '-')}</td>
+      <td class="price-base-col" data-col="price-base">${p.price != null ? p.price : '-'}</td>
+      <td class="price-col" data-price="48388" data-col="price-48388">${formatPrice(p.prices['48388'])}</td>
+      <td class="price-col" data-price="97150" data-col="price-97150">${formatPrice(p.prices['97150'])}</td>
+      <td class="price-col" data-price="377836" data-col="price-377836">${formatPrice(p.prices['377836'])}</td>
+      <td class="price-col" data-price="555169" data-col="price-555169">${formatPrice(p.prices['555169'])}</td>
+      <td class="total-col" data-col="total">${formatPrice(p.totalStock)}</td>
+      ${warehousesToShow.map(w => `<td class="warehouse-col" data-wh="${w.remonline_id}" data-col="wh-${w.remonline_id}">${p.stocks[w.remonline_id] ?? 0}</td>`).join('')}
     `;
     fragment.appendChild(tr);
   }
@@ -453,6 +650,8 @@ function renderTable(productsWithStocks) {
   attachImageHoverPreview();
   attachProductMenus();
   applyColumnVisibility();
+  applyColumnOrder();
+  initDragAndDrop();
 }
 
 function escapeHtml(str) {
@@ -649,6 +848,9 @@ async function loadPage(useFilters = false) {
     const toRender = sortProducts(productsWithStocks);
     renderTable(toRender);
     renderPagination();
+    // Обновляем стрелочки после рендеринга таблицы
+    markSortableHeaders();
+    updateAllSortArrows();
     if (useFilters) {
       const total = productsResp?.total || 0;
       pageInfo.textContent = formatPageInfo();
@@ -711,6 +913,9 @@ function applyAndRender() {
   const sorted = sortProducts(filtered);
   renderTable(sorted);
   renderPagination();
+  // Обновляем стрелочки после рендеринга
+  markSortableHeaders();
+  updateAllSortArrows();
   pageInfo.textContent = formatPageInfo();
 }
 
@@ -817,6 +1022,10 @@ function sortProducts(products) {
     if (by === 'name') { va = a.name || ''; vb = b.name || ''; return va.localeCompare(vb) * dir; }
     if (by === 'category') { va = a.category || ''; vb = b.category || ''; return va.localeCompare(vb) * dir; }
     if (by === 'price') { va = Number(a.price) || 0; vb = Number(b.price) || 0; return (va - vb) * dir; }
+    if (by.startsWith('price_')) {
+      const pid = by.split('_')[1];
+      va = Number(a.prices?.[pid]) || 0; vb = Number(b.prices?.[pid]) || 0; return (va - vb) * dir;
+    }
     if (by === 'total') { va = Number(a.totalStock) || 0; vb = Number(b.totalStock) || 0; return (va - vb) * dir; }
     if (by.startsWith('wh_')) {
       const wid = Number(by.split('_')[1]);
@@ -1009,13 +1218,15 @@ if (theadEl) {
     if (!th || !theadEl.contains(th)) return;
     const key = getSortKeyForHeader(th);
     if (!key) return;
+    
     if (state.filters.sortBy === key) {
       state.filters.sortOrder = (state.filters.sortOrder === 'asc') ? 'desc' : 'asc';
     } else {
       state.filters.sortBy = key;
-      state.filters.sortOrder = 'asc';
+      state.filters.sortOrder = 'desc'; // По умолчанию начинаем с убывания
     }
     applyAndRender();
+    updateAllSortArrows();
   });
 }
 
@@ -1038,10 +1249,73 @@ function getSortKeyForHeader(th) {
 
 function markSortableHeaders() {
   const ths = document.querySelectorAll('thead th');
+  console.log('markSortableHeaders: found', ths.length, 'headers');
   ths.forEach(th => {
     const key = getSortKeyForHeader(th);
-    if (key) th.classList.add('sortable');
-    else th.classList.remove('sortable');
+    if (key) {
+      console.log('Adding arrows to header:', th.textContent, 'key:', key);
+      th.classList.add('sortable');
+      addSortArrows(th, key);
+    } else {
+      th.classList.remove('sortable');
+    }
   });
 }
+
+function addSortArrows(th, sortKey) {
+  // Удаляем старую стрелочку если есть
+  const existingArrow = th.querySelector('.sort-arrow');
+  if (existingArrow) {
+    existingArrow.remove();
+  }
+  
+  // Создаём одну стрелочку
+  const arrow = document.createElement('span');
+  arrow.className = 'sort-arrow';
+  arrow.innerHTML = '↓'; // По умолчанию вниз
+  
+  th.appendChild(arrow);
+  
+  // Обновляем состояние стрелочки
+  updateSortArrows(th, sortKey);
+}
+
+function updateSortArrows(th, sortKey) {
+  const arrow = th.querySelector('.sort-arrow');
+  
+  if (!arrow) return;
+  
+  // Проверяем, активна ли эта колонка для сортировки
+  if (state.filters.sortBy === sortKey) {
+    arrow.classList.add('active');
+    // Устанавливаем направление стрелочки
+    if (state.filters.sortOrder === 'asc') {
+      arrow.innerHTML = '↑';
+    } else {
+      arrow.innerHTML = '↓';
+    }
+  } else {
+    arrow.classList.remove('active');
+    arrow.innerHTML = '↓'; // По умолчанию вниз для неактивных колонок
+  }
+}
+
+function updateAllSortArrows() {
+  const ths = document.querySelectorAll('thead th.sortable');
+  ths.forEach(th => {
+    const key = getSortKeyForHeader(th);
+    if (key) {
+      updateSortArrows(th, key);
+    }
+  });
+}
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+  // Применяем сохраненный порядок столбцов
+  applyColumnOrder();
+  
+  // Инициализируем drag and drop
+  initDragAndDrop();
+});
 
