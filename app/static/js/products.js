@@ -797,7 +797,17 @@ async function loadPage(useFilters = false) {
   loader.style.display = 'inline-block';
   try {
     const productsResp = await fetchJson(url);
-    const products = (productsResp?.data) || [];
+    let products = (productsResp?.data) || [];
+    
+    // Фильтрация по товарам из активной подвкладки
+    if (window.activeSubtab) {
+      const subtabProductIds = window.activeSubtab.getProductIds();
+      if (subtabProductIds && subtabProductIds.length > 0) {
+        products = products.filter(product => 
+          subtabProductIds.includes(product.remonline_id)
+        );
+      }
+    }
 
     // Ограничение конкурентности при загрузке остатков
     const concurrency = 6;
@@ -1310,6 +1320,9 @@ function updateAllSortArrows() {
   });
 }
 
+// Глобальная переменная для менеджера вкладок
+let tabsManager = null;
+
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
   // Применяем сохраненный порядок столбцов
@@ -1317,5 +1330,52 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Инициализируем drag and drop
   initDragAndDrop();
+  
+  // Инициализируем систему вкладок
+  initTabsSystem();
 });
+
+/**
+ * Инициализирует систему вкладок
+ */
+function initTabsSystem() {
+  const tabsContainer = document.getElementById('tabsContainer');
+  if (!tabsContainer) {
+    console.error('Контейнер для вкладок не найден');
+    return;
+  }
+  
+  // Создаём менеджер вкладок
+  tabsManager = new TabsManager(tabsContainer);
+  
+  // Делаем менеджер доступным глобально для других модулей
+  window.tabsManager = tabsManager;
+  
+  // Устанавливаем callback для смены активной подвкладки
+  tabsManager.setOnSubtabChangeCallback((subtab) => {
+    onActiveSubtabChanged(subtab);
+  });
+}
+
+/**
+ * Вызывается при смене активной подвкладки
+ */
+function onActiveSubtabChanged(subtab) {
+  console.log('Активная подвкладка изменена:', subtab);
+  
+  // Сохраняем активную подвкладку для фильтрации
+  window.activeSubtab = subtab;
+  
+  if (subtab) {
+    // Фильтруем товары по подвкладке
+    const productIds = subtab.getProductIds();
+    console.log('Показываем товары с ID:', productIds);
+  } else {
+    // Показываем все товары
+    console.log('Показываем все товары (нет активной подвкладки)');
+  }
+  
+  // Обновляем таблицу товаров
+  loadPage();
+}
 

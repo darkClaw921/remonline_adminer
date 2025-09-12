@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from .routes.warehouses import router as warehouses_router
 from .routes.products import router as products_router
 from .routes.stocks import router as stocks_router
+from .routes.tabs import router as tabs_router
 
 api_router = APIRouter()
 
@@ -22,6 +23,12 @@ api_router.include_router(
     stocks_router,
     prefix="/stocks",
     tags=["stocks"]
+)
+
+api_router.include_router(
+    tabs_router,
+    prefix="/tabs",
+    tags=["tabs"]
 )
 
 __all__ = ["api_router"]

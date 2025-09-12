@@ -1,0 +1,366 @@
+/* Стили для системы вкладок */
+
+.tabs-system {
+    margin-bottom: 15px;
+}
+
+.tabs-header {
+    display: flex;
+    align-items: flex-end;
+    background: transparent;
+    border-bottom: 2px solid #dee2e6;
+    padding: 0;
+    gap: 0;
+    margin-bottom: 8px;
+}
+
+.tabs-scroll-container {
+    display: flex;
+    align-items: flex-end;
+    flex: 1;
+    min-width: 0;
+    order: 2;
+}
+
+.tabs-scroll-btn {
+    background: #f8f9fa;
+    color: #6c757d;
+    border: 1px solid #dee2e6;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: all 0.2s;
+    margin-bottom: -2px;
+}
+
+.tabs-scroll-btn:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.tabs-list-wrapper {
+    flex: 1;
+    overflow: hidden;
+    margin: 0 2px;
+}
+
+.tabs-list {
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding: 0;
+    align-items: flex-end;
+}
+
+.tabs-list::-webkit-scrollbar {
+    display: none;
+}
+
+.btn-add-tab {
+    background: #f8f9fa;
+    color: #28a745;
+    border: 1px solid #dee2e6;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    width: 36px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: bold;
+    transition: all 0.2s;
+    margin-bottom: -2px;
+    margin-right: 4px;
+    order: 1;
+}
+
+.btn-add-tab:hover {
+    background: #e9ecef;
+    color: #218838;
+    border-color: #28a745;
+}
+
+/* Стили вкладок */
+.tab-item {
+    min-width: 120px;
+    max-width: 200px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    margin-bottom: -2px;
+    margin-right: -1px;
+}
+
+.tab-item:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+    z-index: 1;
+}
+
+.tab-item.selected {
+    background: white;
+    border-color: #dee2e6;
+    border-bottom: 2px solid white;
+    z-index: 2;
+}
+
+.tab-item.dragging {
+    opacity: 0.5;
+    transform: rotate(2deg);
+    z-index: 3;
+}
+
+.tab-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: transparent;
+    border-radius: 6px 6px 0 0;
+    min-height: 32px;
+}
+
+.tab-item.selected .tab-header {
+    background: transparent;
+}
+
+.tab-name {
+    font-weight: 500;
+    color: #495057;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    margin-right: 8px;
+}
+
+.tab-item.selected .tab-name {
+    color: #0d47a1;
+}
+
+.tab-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.tab-item:hover .tab-actions {
+    opacity: 1;
+}
+
+.btn-tab-edit,
+.btn-tab-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    font-size: 12px;
+    transition: background-color 0.2s;
+}
+
+.btn-tab-edit:hover {
+    background: #ffc107;
+    color: white;
+}
+
+.btn-tab-close:hover {
+    background: #dc3545;
+    color: white;
+}
+
+.tab-rename-input {
+    background: white;
+    border: 1px solid #007bff;
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 14px;
+    font-weight: 500;
+    width: 100%;
+    margin-right: 8px;
+}
+
+/* Стили подвкладок */
+.subtabs-container {
+    background: transparent;
+    padding: 0;
+    margin-bottom: 8px;
+}
+
+.subtabs-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.subtabs-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+}
+
+.subtab-item {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 100px;
+    font-size: 13px;
+}
+
+.subtab-item:hover {
+    border-color: #007bff;
+    background: #e7f3ff;
+}
+
+.subtab-item.selected {
+    background: #007bff;
+    border-color: #007bff;
+    color: white;
+}
+
+.subtab-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+}
+
+.subtab-name {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    margin-right: 6px;
+}
+
+.subtab-actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.subtab-item:hover .subtab-actions {
+    opacity: 1;
+}
+
+.subtab-item.selected .subtab-actions {
+    opacity: 1;
+}
+
+.btn-subtab-products,
+.btn-subtab-edit,
+.btn-subtab-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 2px;
+    font-size: 10px;
+    transition: background-color 0.2s;
+}
+
+.btn-subtab-products:hover {
+    background: #17a2b8;
+    color: white;
+}
+
+.btn-subtab-edit:hover {
+    background: #ffc107;
+    color: white;
+}
+
+.btn-subtab-close:hover {
+    background: #dc3545;
+    color: white;
+}
+
+.subtab-item.selected .btn-subtab-products:hover,
+.subtab-item.selected .btn-subtab-edit:hover,
+.subtab-item.selected .btn-subtab-close:hover {
+    background: rgba(255,255,255,0.3);
+    color: white;
+}
+
+.subtab-rename-input {
+    background: white;
+    border: 1px solid #007bff;
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-size: 13px;
+    font-weight: 500;
+    width: 100%;
+    margin-right: 6px;
+    color: #495057;
+}
+
+.btn-add-subtab {
+    background: #f8f9fa;
+    color: #28a745;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-add-subtab:hover {
+    background: #e9ecef;
+    color: #218838;
+    border-color: #28a745;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .tab-item {
+        min-width: 150px;
+        max-width: 200px;
+    }
+    
+    .subtabs-list {
+        flex-direction: column;
+    }
+    
+    .subtab-item {
+        min-width: auto;
+        width: 100%;
+    }
+    
+    .tabs-header {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+}
