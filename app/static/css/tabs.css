@@ -243,6 +243,11 @@
     color: white;
 }
 
+.subtab-item.dragging {
+    opacity: 0.5;
+    transform: rotate(2deg);
+}
+
 .subtab-header {
     display: flex;
     align-items: center;

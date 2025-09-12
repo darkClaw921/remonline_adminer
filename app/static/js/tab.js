@@ -21,6 +21,7 @@ class Subtab {
         const subtabElement = document.createElement('div');
         subtabElement.className = 'subtab-item';
         subtabElement.dataset.subtabId = this.id;
+        subtabElement.draggable = true;
         
         subtabElement.innerHTML = `
             <div class="subtab-header">
@@ -72,6 +73,35 @@ class Subtab {
         closeBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             this.delete();
+        });
+
+        // Drag & Drop для перемещения подвкладок
+        this.element.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', `subtab:${this.id}`);
+            e.dataTransfer.effectAllowed = 'move';
+            this.element.classList.add('dragging');
+        });
+
+        this.element.addEventListener('dragend', () => {
+            this.element.classList.remove('dragging');
+        });
+
+        this.element.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        });
+
+        this.element.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const draggedData = e.dataTransfer.getData('text/plain');
+            
+            // Проверяем, что перетаскиваем подвкладку
+            if (draggedData.startsWith('subtab:')) {
+                const draggedSubtabId = parseInt(draggedData.split(':')[1]);
+                if (draggedSubtabId !== this.id) {
+                    this.parentTab.moveSubtab(draggedSubtabId, this.id);
+                }
+            }
         });
     }
 
@@ -187,12 +217,30 @@ class Subtab {
             const data = await response.json();
             const allProducts = data.data || [];
             
-            // Получаем ID товаров уже добавленных в подвкладку
-            const subtabProductIds = this.getProductIds();
+            // Сохраняем ссылку на исходные данные для отображения оригиналов
+            this.originalProductsData = allProducts;
             
-            // Разделяем на доступные и уже добавленные товары
+            // Загружаем товары подвкладки с полными данными (включая custom поля)
+            const subtabProductsResponse = await fetch(`/api/v1/tabs/subtabs/${this.id}/products`);
+            const subtabProductsData = await subtabProductsResponse.json();
+            
+            // Получаем ID товаров уже добавленных в подвкладку
+            const subtabProductIds = subtabProductsData.map(sp => sp.product_remonline_id);
+            
+            // Обогащаем данные товаров в подвкладке информацией из общего списка
+            const currentProducts = subtabProductsData.map(subtabProduct => {
+                const fullProduct = allProducts.find(p => p.remonline_id === subtabProduct.product_remonline_id);
+                return {
+                    ...fullProduct,
+                    id: subtabProduct.id, // ID записи SubTabProduct для редактирования
+                    custom_name: subtabProduct.custom_name,
+                    custom_category: subtabProduct.custom_category,
+                    product_remonline_id: subtabProduct.product_remonline_id
+                };
+            });
+            
+            // Разделяем на доступные товары
             const availableProducts = allProducts.filter(p => !subtabProductIds.includes(p.remonline_id));
-            const currentProducts = allProducts.filter(p => subtabProductIds.includes(p.remonline_id));
             
             // Отрисовываем списки товаров
             this.renderProductsList(availableContainer, availableProducts, 'available');
@@ -206,7 +254,8 @@ class Subtab {
                     const query = e.target.value.toLowerCase();
                     const filtered = allProducts.filter(p => 
                         !subtabProductIds.includes(p.remonline_id) &&
-                        p.name.toLowerCase().includes(query)
+                        (p.name.toLowerCase().includes(query) || 
+                         (p.custom_name && p.custom_name.toLowerCase().includes(query)))
                     );
                     this.renderProductsList(availableContainer, filtered, 'available');
                 }, 300);
@@ -233,24 +282,245 @@ class Subtab {
             return;
         }
         
-        const html = products.map(product => `
-            <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" value="${product.remonline_id}" 
-                       id="${type}_${product.id}" data-product-id="${product.id}">
-                <label class="form-check-label" for="${type}_${product.id}">
-                    <strong>${product.name}</strong><br>
-                    <small class="text-muted">ID: ${product.remonline_id} | SKU: ${product.sku || '-'}</small>
-                </label>
-                ${type === 'current' ? `
-                    <button type="button" class="btn btn-sm btn-outline-danger float-end" 
-                            onclick="removeProductFromSubtab(${this.id}, ${product.remonline_id})">
-                        Удалить
-                    </button>
-                ` : ''}
-            </div>
-        `).join('');
+        const html = products.map(product => {
+            if (type === 'current') {
+                // Для товаров в подвкладке показываем редактируемые поля
+                const displayName = product.custom_name || product.name;
+                const displayCategory = product.custom_category || product.category || 'Без категории';
+                
+                return `
+                    <div class="card mb-2" data-product-id="${product.id}" data-remonline-id="${product.product_remonline_id || product.remonline_id}">
+                        <div class="card-body p-2">
+                            <div class="row align-items-center">
+                                <div class="col">
+                                    <div class="mb-1">
+                                        <strong class="editable-name" data-field="custom_name" title="Клик для редактирования">${displayName}</strong>
+                                        ${product.custom_name ? '<small class="text-success ms-1">✓</small>' : ''}
+                                    </div>
+                                    ${product.custom_name ? `<div class="mb-1"><small class="text-muted">Оригинал: ${product.name}</small></div>` : ''}
+                                    <div class="mb-1">
+                                        <span class="text-muted">Категория: </span>
+                                        <span class="editable-category" data-field="custom_category" title="Клик для редактирования">${displayCategory}</span>
+                                        ${product.custom_category ? '<small class="text-success ms-1">✓</small>' : ''}
+                                    </div>
+                                    ${product.custom_category ? `<div class="mb-1"><small class="text-muted">Оригинал категории: ${product.category || 'Без категории'}</small></div>` : ''}
+                                    <small class="text-muted">ID: ${product.product_remonline_id || product.remonline_id} | SKU: ${product.sku || '-'}</small>
+                                </div>
+                                <div class="col-auto">
+                                    <button type="button" class="btn btn-sm btn-outline-danger" 
+                                            onclick="removeProductFromSubtab(${this.id}, ${product.product_remonline_id || product.remonline_id})">
+                                        Удалить
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Для доступных товаров обычный вид с чекбоксом
+                return `
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="${product.remonline_id}" 
+                               id="${type}_${product.id}" data-product-id="${product.id}">
+                        <label class="form-check-label" for="${type}_${product.id}">
+                            <strong>${product.name}</strong><br>
+                            <small class="text-muted">Категория: ${product.category || 'Без категории'}</small><br>
+                            <small class="text-muted">ID: ${product.remonline_id} | SKU: ${product.sku || '-'}</small>
+                        </label>
+                    </div>
+                `;
+            }
+        }).join('');
         
         container.innerHTML = html;
+        
+        // Привязываем события для редактирования, если это товары в подвкладке
+        if (type === 'current') {
+            this.bindEditableEvents(container);
+        }
+    }
+
+    /**
+     * Привязывает события для редактирования полей товаров
+     */
+    bindEditableEvents(container) {
+        // Редактирование названий
+        container.querySelectorAll('.editable-name').forEach(element => {
+            element.addEventListener('click', (e) => {
+                this.startEditField(e.target, 'custom_name');
+            });
+            element.style.cursor = 'pointer';
+            element.style.borderBottom = '1px dashed #007bff';
+        });
+
+        // Редактирование категорий
+        container.querySelectorAll('.editable-category').forEach(element => {
+            element.addEventListener('click', (e) => {
+                this.startEditField(e.target, 'custom_category');
+            });
+            element.style.cursor = 'pointer';
+            element.style.borderBottom = '1px dashed #007bff';
+        });
+    }
+
+    /**
+     * Начинает редактирование поля
+     */
+    startEditField(element, fieldName) {
+        const currentValue = element.textContent;
+        const card = element.closest('.card');
+        const productId = card.dataset.productId;
+        
+        // Создаем инпут для редактирования
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = currentValue;
+        input.className = 'form-control form-control-sm';
+        input.style.minWidth = '200px';
+        
+        // Заменяем элемент на инпут
+        element.parentNode.replaceChild(input, element);
+        input.focus();
+        input.select();
+
+        const finishEdit = async () => {
+            const newValue = input.value.trim();
+            
+            try {
+                // Отправляем запрос на обновление
+                await this.updateSubtabProductField(productId, fieldName, newValue);
+                
+                // Восстанавливаем элемент с новым значением
+                const newElement = document.createElement('span');
+                newElement.className = element.className;
+                newElement.dataset.field = fieldName;
+                newElement.title = 'Клик для редактирования';
+                newElement.textContent = newValue || (fieldName === 'custom_category' ? 'Без категории' : currentValue);
+                newElement.style.cursor = 'pointer';
+                newElement.style.borderBottom = '1px dashed #007bff';
+                
+                // Заменяем input на новый элемент
+                const parentElement = input.parentNode;
+                parentElement.replaceChild(newElement, input);
+                
+                // Удаляем старую галочку если есть
+                const existingCheckmark = parentElement.querySelector('.text-success');
+                if (existingCheckmark) {
+                    existingCheckmark.remove();
+                }
+                
+                // Добавляем галочку если значение кастомное
+                if (newValue && newValue.trim() !== '') {
+                    const checkmark = document.createElement('small');
+                    checkmark.className = 'text-success ms-1';
+                    checkmark.textContent = '✓';
+                    checkmark.title = fieldName === 'custom_name' ? 'Кастомное название' : 'Кастомная категория';
+                    parentElement.insertBefore(checkmark, newElement.nextSibling);
+                }
+                
+                // Привязываем событие заново
+                newElement.addEventListener('click', (e) => {
+                    this.startEditField(e.target, fieldName);
+                });
+                
+                // Обновляем отображение оригинальных данных
+                this.updateOriginalDataDisplay(card, fieldName, newValue);
+                
+            } catch (error) {
+                console.error('Ошибка обновления поля:', error);
+                alert('Не удалось обновить поле');
+                
+                // Восстанавливаем оригинальный элемент
+                input.parentNode.replaceChild(element, input);
+            }
+        };
+
+        // Обработчики событий
+        input.addEventListener('blur', finishEdit);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                finishEdit();
+            } else if (e.key === 'Escape') {
+                input.parentNode.replaceChild(element, input);
+            }
+        });
+    }
+
+    /**
+     * Обновляет отображение оригинальных данных
+     */
+    updateOriginalDataDisplay(card, fieldName, newValue) {
+        const originalSelector = fieldName === 'custom_name' ? '.original-name' : '.original-category';
+        let originalElement = card.querySelector(originalSelector);
+        
+        if (newValue && newValue.trim() !== '') {
+            // Показываем оригинал если есть кастомное значение
+            if (!originalElement) {
+                originalElement = document.createElement('div');
+                originalElement.className = 'mb-1';
+                originalElement.innerHTML = `<small class="text-muted ${fieldName === 'custom_name' ? 'original-name' : 'original-category'}"></small>`;
+                
+                if (fieldName === 'custom_name') {
+                    // Вставляем после названия
+                    const nameDiv = card.querySelector('.editable-name').closest('.mb-1');
+                    nameDiv.parentNode.insertBefore(originalElement, nameDiv.nextSibling);
+                } else {
+                    // Вставляем после категории
+                    const categoryDiv = card.querySelector('.editable-category').closest('.mb-1');
+                    categoryDiv.parentNode.insertBefore(originalElement, categoryDiv.nextSibling);
+                }
+            }
+            
+            // Получаем оригинальные данные из data-атрибутов или других источников
+            const originalData = this.getOriginalProductData(card);
+            const originalText = fieldName === 'custom_name' 
+                ? `Оригинал: ${originalData.name}` 
+                : `Оригинал категории: ${originalData.category || 'Без категории'}`;
+            
+            originalElement.querySelector('small').textContent = originalText;
+        } else {
+            // Скрываем оригинал если нет кастомного значения
+            if (originalElement) {
+                originalElement.remove();
+            }
+        }
+    }
+
+    /**
+     * Получает оригинальные данные товара
+     */
+    getOriginalProductData(card) {
+        const productId = card.dataset.remonlineId;
+        // Ищем товар в исходных данных
+        const originalProduct = this.originalProductsData?.find(p => 
+            p.remonline_id === parseInt(productId)
+        );
+        
+        return originalProduct || { name: 'Неизвестно', category: 'Без категории' };
+    }
+
+    /**
+     * Обновляет поле товара в подвкладке
+     */
+    async updateSubtabProductField(productId, fieldName, value) {
+        const updateData = {};
+        updateData[fieldName] = value || null;
+        
+        const response = await fetch(`/api/v1/tabs/subtabs/products/${productId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(updateData)
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Server error:', errorText);
+            throw new Error('Ошибка сервера');
+        }
+        
+        return response.json();
     }
 
     /**
@@ -281,7 +551,7 @@ class Subtab {
                 await this.refreshProductsData();
                 
                 // Перезагружаем модальное окно
-                this.loadProductsForModal(modal);
+                await this.loadProductsForModal(modal);
                 
                 // Если эта подвкладка активна, обновляем таблицу товаров
                 if (this.parentTab.activeSubtab === this) {
@@ -419,6 +689,33 @@ class Subtab {
         return this.products
             .filter(p => p.is_active)
             .map(p => p.product_remonline_id);
+    }
+
+    /**
+     * Обновляет порядок подвкладки
+     */
+    async updateOrder(newOrder) {
+        try {
+            const response = await fetch(`/api/v1/tabs/subtabs/${this.id}/reorder`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ new_order: newOrder })
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('Ошибка API при изменении порядка подвкладки:', errorData);
+                return false;
+            }
+            
+            this.orderIndex = newOrder;
+            return true;
+        } catch (error) {
+            console.error('Ошибка изменения порядка подвкладки:', error);
+            return false;
+        }
     }
 }
 
@@ -685,6 +982,57 @@ class Tab {
     renderSubtabs() {
         // Обновляем отображение подвкладок через менеджер
         this.tabsManager.showSubtabs(this);
+    }
+
+    /**
+     * Перемещает подвкладку
+     */
+    async moveSubtab(draggedSubtabId, targetSubtabId) {
+        const draggedSubtab = this.subtabs.find(s => s.id === draggedSubtabId);
+        const targetSubtab = this.subtabs.find(s => s.id === targetSubtabId);
+        
+        if (!draggedSubtab || !targetSubtab) return;
+
+        try {
+            // Обновляем порядок на сервере
+            await draggedSubtab.updateOrder(targetSubtab.orderIndex);
+            
+            // Перезагружаем подвкладки для корректного отображения
+            await this.reloadSubtabs();
+            
+        } catch (error) {
+            console.error('Ошибка перемещения подвкладки:', error);
+        }
+    }
+
+    /**
+     * Перезагружает подвкладки из API
+     */
+    async reloadSubtabs() {
+        try {
+            const response = await fetch(`/api/v1/tabs/${this.id}/subtabs`);
+            if (response.ok) {
+                const subtabsData = await response.json();
+                
+                // Обновляем данные подвкладок
+                this.subtabs = subtabsData
+                    .sort((a, b) => a.order_index - b.order_index)
+                    .map(subtabData => new Subtab(subtabData, this));
+                
+                // Перерисовываем подвкладки
+                this.tabsManager.showSubtabs(this);
+                
+                // Восстанавливаем активную подвкладку если она есть
+                if (this.activeSubtab) {
+                    const activeSubtab = this.subtabs.find(s => s.id === this.activeSubtab.id);
+                    if (activeSubtab) {
+                        this.selectSubtab(activeSubtab);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Ошибка перезагрузки подвкладок:', error);
+        }
     }
 
     /**

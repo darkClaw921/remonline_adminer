@@ -551,7 +551,13 @@ function debounce(fn, ms) {
 applyBtn?.addEventListener('click', () => {
   readFiltersFromUI();
   state.page = 1;
-  loadPage(true); // Используем серверные фильтры
+  
+  // Если активна подвкладка, используем клиентскую фильтрацию
+  if (window.activeSubtab) {
+    applyAndRender();
+  } else {
+    loadPage(true); // Используем серверные фильтры только если нет активной подвкладки
+  }
 });
 
 resetBtn?.addEventListener('click', () => {
@@ -565,7 +571,13 @@ resetBtn?.addEventListener('click', () => {
   // Сброс состояния
   state.filters = { categories: [], warehouses: [], priceMin: null, priceMax: null, stockMin: null, stockMax: null, sortBy: 'name', sortOrder: 'desc' };
   state.page = 1;
-  loadPage(false); // Загружаем без фильтров
+  
+  // Если активна подвкладка, используем клиентскую фильтрацию
+  if (window.activeSubtab) {
+    applyAndRender();
+  } else {
+    loadPage(false); // Загружаем без фильтров только если нет активной подвкладки
+  }
 });
 
 async function fetchJson(url) {
@@ -624,7 +636,10 @@ function renderTable(productsWithStocks) {
       </td>
       <td class="name-col" data-col="name">
         <div class="product-menu-wrapper">
-          <div class="name-wrap" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</div>
+          <div class="name-wrap" title="${escapeHtml(p.original_name || p.name)}">
+            ${escapeHtml(p.name)}
+            ${p.is_custom_name ? '<small class="text-success ms-1" title="Кастомное название">✓</small>' : ''}
+          </div>
           <div class="sku">RemID: ${p.remonline_id ?? '-'} · SKU: ${escapeHtml(p.sku || '-')}</div>
           <div class="sku">Обновлено: ${formatDate(p.updated_at)}</div>
           <div class="product-menu" data-product-id="${p.id}">
@@ -635,7 +650,10 @@ function renderTable(productsWithStocks) {
           </div>
         </div>
       </td>
-      <td class="category-col" data-col="category">${escapeHtml(p.category || '-')}</td>
+      <td class="category-col" data-col="category">
+        ${escapeHtml(p.category || '-')}
+        ${p.is_custom_category ? '<small class="text-success ms-1" title="Кастомная категория">✓</small>' : ''}
+      </td>
       <td class="price-base-col" data-col="price-base">${p.price != null ? p.price : '-'}</td>
       <td class="price-col" data-price="48388" data-col="price-48388">${formatPrice(p.prices['48388'])}</td>
       <td class="price-col" data-price="97150" data-col="price-97150">${formatPrice(p.prices['97150'])}</td>
@@ -799,13 +817,43 @@ async function loadPage(useFilters = false) {
     const productsResp = await fetchJson(url);
     let products = (productsResp?.data) || [];
     
-    // Фильтрация по товарам из активной подвкладки
+    // Фильтрация и обогащение товаров из активной подвкладки
     if (window.activeSubtab) {
       const subtabProductIds = window.activeSubtab.getProductIds();
       if (subtabProductIds && subtabProductIds.length > 0) {
+        // Получаем данные товаров из подвкладки с кастомными названиями
+        const subtabProducts = window.activeSubtab.products || [];
+        const subtabProductsMap = new Map();
+        
+        subtabProducts.forEach(sp => {
+          subtabProductsMap.set(sp.product_remonline_id, {
+            custom_name: sp.custom_name,
+            custom_category: sp.custom_category
+          });
+        });
+        
         products = products.filter(product => 
           subtabProductIds.includes(product.remonline_id)
-        );
+        ).map(product => {
+          // Обогащаем товар кастомными данными из подвкладки
+          const subtabData = subtabProductsMap.get(product.remonline_id);
+          if (subtabData) {
+            return {
+              ...product,
+              display_name: subtabData.custom_name || product.name,
+              display_category: subtabData.custom_category || product.category,
+              is_custom_name: !!subtabData.custom_name,
+              is_custom_category: !!subtabData.custom_category
+            };
+          }
+          return {
+            ...product,
+            display_name: product.name,
+            display_category: product.category,
+            is_custom_name: false,
+            is_custom_category: false
+          };
+        });
       }
     }
 
@@ -825,9 +873,13 @@ async function loadPage(useFilters = false) {
       return {
         id: product.id,
         remonline_id: product.remonline_id,
-        name: product.name,
+        name: product.display_name || product.name,
+        original_name: product.name,
         sku: product.sku,
-        category: product.category,
+        category: product.display_category || product.category,
+        original_category: product.category,
+        is_custom_name: product.is_custom_name || false,
+        is_custom_category: product.is_custom_category || false,
         price: product.price,
         updated_at: product.updated_at,
         stocks: stocks,
@@ -879,7 +931,17 @@ async function loadPage(useFilters = false) {
 function updateCategoryOptions(products) {
   if (!categoryFilterEl) return;
   const selected = new Set(Array.from(categoryFilterEl.selectedOptions).map(o => o.value));
-  const categories = Array.from(new Set(products.map(p => p.category).filter(Boolean))).sort((a,b) => a.localeCompare(b));
+  
+  // Собираем все категории (включая кастомные)
+  const allCategories = new Set();
+  products.forEach(p => {
+    if (p.category) allCategories.add(p.category);
+    if (p.original_category && p.original_category !== p.category) {
+      allCategories.add(p.original_category);
+    }
+  });
+  
+  const categories = Array.from(allCategories).sort((a,b) => a.localeCompare(b));
   categoryFilterEl.innerHTML = '';
   const ph = document.createElement('option');
   ph.value = '';
@@ -921,7 +983,19 @@ function applyAndRender() {
   const products = state.currentProducts || [];
   const filtered = filterProducts(products);
   const sorted = sortProducts(filtered);
-  renderTable(sorted);
+  
+  // Обновляем состояние для правильной пагинации
+  state.allProducts = sorted;
+  state.totalLoaded = sorted.length;
+  state.totalPages = Math.ceil(sorted.length / state.size) || 1;
+  state.hasMore = false; // Клиентская фильтрация - все данные уже загружены
+  
+  // Применяем пагинацию - показываем только товары для текущей страницы
+  const startIndex = (state.page - 1) * state.size;
+  const endIndex = startIndex + state.size;
+  const paginatedProducts = sorted.slice(startIndex, endIndex);
+  
+  renderTable(paginatedProducts);
   renderPagination();
   // Обновляем стрелочки после рендеринга
   markSortableHeaders();
@@ -953,7 +1027,15 @@ function renderPagination() {
 
   // Prev
   container.appendChild(createBtn('<', current <= 1, () => {
-    if (state.page > 1) { state.page -= 1; loadPage(state.filters.warehouses.length > 0 || state.filters.categories.length > 0); }
+    if (state.page > 1) { 
+      state.page -= 1; 
+      // Если активна подвкладка, используем клиентскую фильтрацию
+      if (window.activeSubtab) {
+        applyAndRender();
+      } else {
+        loadPage(state.filters.warehouses.length > 0 || state.filters.categories.length > 0);
+      }
+    }
   }));
 
   // Всегда показываем 1, текущую ±2, и последнюю страницу
@@ -991,21 +1073,43 @@ function renderPagination() {
     const btn = document.createElement('button');
     btn.className = `btn btn-sm ${isActive ? 'btn-primary' : 'btn-outline-secondary'}`;
     btn.textContent = String(pageNum);
-    if (!isActive) btn.addEventListener('click', () => { state.page = pageNum; loadPage(state.filters.warehouses.length > 0 || state.filters.categories.length > 0); });
+    if (!isActive) btn.addEventListener('click', () => { 
+      state.page = pageNum; 
+      // Если активна подвкладка, используем клиентскую фильтрацию
+      if (window.activeSubtab) {
+        applyAndRender();
+      } else {
+        loadPage(state.filters.warehouses.length > 0 || state.filters.categories.length > 0);
+      }
+    });
     container.appendChild(btn);
   }
 
   // Next
   container.appendChild(createBtn('>', current >= totalPages, () => {
-    if (state.page < totalPages) { state.page += 1; loadPage(state.filters.warehouses.length > 0 || state.filters.categories.length > 0); }
+    if (state.page < totalPages) { 
+      state.page += 1; 
+      // Если активна подвкладка, используем клиентскую фильтрацию
+      if (window.activeSubtab) {
+        applyAndRender();
+      } else {
+        loadPage(state.filters.warehouses.length > 0 || state.filters.categories.length > 0);
+      }
+    }
   }));
 }
 
 function filterProducts(products) {
   const f = state.filters;
   return products.filter(p => {
-    // Фильтр по категориям (любой из выбранных)
-    if (f.categories.length > 0 && !f.categories.includes(p.category || '')) return false;
+    // Фильтр по категориям (любой из выбранных) - проверяем как текущую, так и оригинальную категорию
+    if (f.categories.length > 0) {
+      const currentCategory = p.category || '';
+      const originalCategory = p.original_category || '';
+      const hasMatchingCategory = f.categories.includes(currentCategory) || 
+                                 f.categories.includes(originalCategory);
+      if (!hasMatchingCategory) return false;
+    }
     // Фильтр по цене
     if (f.priceMin != null && (p.price == null || p.price < f.priceMin)) return false;
     if (f.priceMax != null && (p.price == null || p.price > f.priceMax)) return false;

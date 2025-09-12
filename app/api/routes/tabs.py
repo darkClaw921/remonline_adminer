@@ -275,6 +275,46 @@ async def get_subtab(subtab_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Ошибка получения подвкладки")
 
 
+@router.post("/subtabs/{subtab_id}/reorder")
+async def reorder_subtab(subtab_id: int, reorder_data: dict, db: Session = Depends(get_db)):
+    """Изменить порядок подвкладки"""
+    try:
+        db_subtab = db.query(SubTab).filter(SubTab.id == subtab_id).first()
+        if not db_subtab:
+            raise HTTPException(status_code=404, detail="Подвкладка не найдена")
+        
+        new_order = reorder_data.get('new_order')
+        if new_order is None:
+            raise HTTPException(status_code=400, detail="Требуется поле new_order")
+        
+        # Получаем все подвкладки этой вкладки, отсортированные по order_index
+        subtabs_in_tab = db.query(SubTab).filter(
+            SubTab.tab_id == db_subtab.tab_id,
+            SubTab.is_active == True
+        ).order_by(SubTab.order_index).all()
+        
+        # Удаляем перемещаемую подвкладку из списка
+        subtabs_in_tab = [s for s in subtabs_in_tab if s.id != subtab_id]
+        
+        # Вставляем подвкладку на новое место
+        subtabs_in_tab.insert(new_order, db_subtab)
+        
+        # Обновляем order_index для всех подвкладок
+        for i, subtab in enumerate(subtabs_in_tab):
+            subtab.order_index = i
+        
+        db.commit()
+        
+        logger.info(f"Изменен порядок подвкладки: {db_subtab.name} (новый порядок: {new_order})")
+        return {"message": "Порядок подвкладки изменен", "new_order": new_order}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка изменения порядка подвкладки: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Ошибка изменения порядка подвкладки")
+
+
 @router.delete("/subtabs/{subtab_id}")
 async def delete_subtab(subtab_id: int, db: Session = Depends(get_db)):
     """Удалить подвкладку"""
