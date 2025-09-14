@@ -13,6 +13,8 @@ uv sync
 Создайте файл `.env` и укажите ваш API ключ Remonline:
 ```bash
 REMONLINE_API_KEY=your_remonline_api_key_here
+VERIFY_SSL=False
+PORT=8000
 ```
 
 ### 3. Запуск приложения

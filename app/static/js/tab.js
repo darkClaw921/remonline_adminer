@@ -135,6 +135,34 @@ class Subtab {
         const bsModal = new bootstrap.Modal(modal);
         bsModal.show();
         
+        // Обработчик для изменения размера модального окна
+        const toggleSizeBtn = modal.querySelector('#toggleModalSize');
+        const modalDialog = modal.querySelector('.modal-dialog');
+        let isFullscreen = false;
+        
+        toggleSizeBtn.addEventListener('click', () => {
+            const availableProducts = modal.querySelector('#availableProducts');
+            const subtabProducts = modal.querySelector('#subtabProducts');
+            
+            if (isFullscreen) {
+                modalDialog.className = 'modal-dialog modal-xl modal-dialog-resizable';
+                toggleSizeBtn.innerHTML = '⛶';
+                toggleSizeBtn.title = 'Развернуть на весь экран';
+                // Возвращаем обычную высоту
+                if (availableProducts) availableProducts.style.height = '400px';
+                if (subtabProducts) subtabProducts.style.height = '400px';
+                isFullscreen = false;
+            } else {
+                modalDialog.className = 'modal-dialog modal-fullscreen modal-dialog-resizable';
+                toggleSizeBtn.innerHTML = '🗗';
+                toggleSizeBtn.title = 'Свернуть до обычного размера';
+                // Увеличиваем высоту для полноэкранного режима
+                if (availableProducts) availableProducts.style.height = 'calc(100vh - 300px)';
+                if (subtabProducts) subtabProducts.style.height = 'calc(100vh - 300px)';
+                isFullscreen = true;
+            }
+        });
+        
         // Удаляем модальное окно после закрытия
         modal.addEventListener('hidden.bs.modal', () => {
             modal.remove();
@@ -152,11 +180,14 @@ class Subtab {
         modal.className = 'modal fade';
         modal.tabIndex = -1;
         modal.innerHTML = `
-            <div class="modal-dialog modal-xl">
+            <div class="modal-dialog modal-xl modal-dialog-resizable">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title">Товары в подвкладке "${this.name}"</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        <h5 class="modal-title">Товары на листе "${this.name}"</h5>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleModalSize" title="Изменить размер окна">⛶</button>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
                     </div>
                     <div class="modal-body">
                         <div class="row mb-3">
@@ -181,7 +212,7 @@ class Subtab {
                                 </div>
                             </div>
                             <div class="col-md-6">
-                                <h6>Товары в подвкладке</h6>
+                                <h6>Товары на листе</h6>
                                 <div id="subtabProducts" class="border p-2" style="height: 400px; overflow-y: auto;">
                                     <div class="text-center">
                                         <div class="spinner-border" role="status">
@@ -235,9 +266,13 @@ class Subtab {
                     id: subtabProduct.id, // ID записи SubTabProduct для редактирования
                     custom_name: subtabProduct.custom_name,
                     custom_category: subtabProduct.custom_category,
-                    product_remonline_id: subtabProduct.product_remonline_id
+                    product_remonline_id: subtabProduct.product_remonline_id,
+                    order_index: subtabProduct.order_index // Сохраняем порядок
                 };
             });
+            
+            // Обновляем данные подвкладки с правильным порядком
+            this.products = subtabProductsData;
             
             // Разделяем на доступные товары
             const availableProducts = allProducts.filter(p => !subtabProductIds.includes(p.remonline_id));
@@ -289,9 +324,12 @@ class Subtab {
                 const displayCategory = product.custom_category || product.category || 'Без категории';
                 
                 return `
-                    <div class="card mb-2" data-product-id="${product.id}" data-remonline-id="${product.product_remonline_id || product.remonline_id}">
+                    <div class="card mb-2 draggable-product" data-product-id="${product.id}" data-remonline-id="${product.product_remonline_id || product.remonline_id}" draggable="true">
                         <div class="card-body p-2">
                             <div class="row align-items-center">
+                                <div class="col-auto pe-2">
+                                    <span class="drag-handle text-muted" title="Перетащите для изменения порядка" style="cursor: move;">⋮⋮</span>
+                                </div>
                                 <div class="col">
                                     <div class="mb-1">
                                         <strong class="editable-name" data-field="custom_name" title="Клик для редактирования">${displayName}</strong>
@@ -304,7 +342,7 @@ class Subtab {
                                         ${product.custom_category ? '<small class="text-success ms-1">✓</small>' : ''}
                                     </div>
                                     ${product.custom_category ? `<div class="mb-1"><small class="text-muted">Оригинал категории: ${product.category || 'Без категории'}</small></div>` : ''}
-                                    <small class="text-muted">ID: ${product.product_remonline_id || product.remonline_id} | SKU: ${product.sku || '-'}</small>
+                                    <small class="text-muted">ID: ${product.product_remonline_id || product.remonline_id} | SKU: ${product.sku || '-'} | Порядок: ${product.order_index}</small>
                                 </div>
                                 <div class="col-auto">
                                     <button type="button" class="btn btn-sm btn-outline-danger" 
@@ -337,6 +375,7 @@ class Subtab {
         // Привязываем события для редактирования, если это товары в подвкладке
         if (type === 'current') {
             this.bindEditableEvents(container);
+            this.bindDragDropEvents(container);
         }
     }
 
@@ -361,6 +400,122 @@ class Subtab {
             element.style.cursor = 'pointer';
             element.style.borderBottom = '1px dashed #007bff';
         });
+    }
+
+    /**
+     * Привязывает события для drag&drop товаров
+     */
+    bindDragDropEvents(container) {
+        const draggableItems = container.querySelectorAll('.draggable-product');
+        
+        draggableItems.forEach(item => {
+            item.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', `product:${item.dataset.productId}:${item.dataset.remonlineId}`);
+                e.dataTransfer.effectAllowed = 'move';
+                item.classList.add('dragging');
+            });
+
+            item.addEventListener('dragend', () => {
+                item.classList.remove('dragging');
+                // Удаляем все drag-over классы
+                container.querySelectorAll('.draggable-product').forEach(el => {
+                    el.classList.remove('drag-over', 'drag-over-bottom');
+                });
+            });
+
+            item.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                
+                if (item.classList.contains('dragging')) return;
+                
+                const rect = item.getBoundingClientRect();
+                const y = e.clientY - rect.top;
+                const isBottomHalf = y > rect.height / 2;
+                
+                // Очищаем все drag-over классы
+                container.querySelectorAll('.draggable-product').forEach(el => {
+                    el.classList.remove('drag-over', 'drag-over-bottom');
+                });
+                
+                // Добавляем соответствующий класс
+                if (isBottomHalf) {
+                    item.classList.add('drag-over-bottom');
+                } else {
+                    item.classList.add('drag-over');
+                }
+            });
+
+            item.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const draggedData = e.dataTransfer.getData('text/plain');
+                if (!draggedData.startsWith('product:')) return;
+                
+                const [, draggedProductId, draggedRemonlineId] = draggedData.split(':');
+                const draggedElement = container.querySelector(`[data-product-id="${draggedProductId}"]`);
+                
+                if (!draggedElement || draggedElement === item) return;
+                
+                const rect = item.getBoundingClientRect();
+                const y = e.clientY - rect.top;
+                const isBottomHalf = y > rect.height / 2;
+                
+                // Перемещаем элемент в DOM
+                if (isBottomHalf) {
+                    item.parentNode.insertBefore(draggedElement, item.nextSibling);
+                } else {
+                    item.parentNode.insertBefore(draggedElement, item);
+                }
+                
+                // Обновляем порядок товаров на сервере
+                this.updateProductsOrder(container);
+                
+                // Очищаем drag-over классы
+                item.classList.remove('drag-over', 'drag-over-bottom');
+            });
+        });
+    }
+
+    /**
+     * Обновляет порядок товаров на сервере
+     */
+    async updateProductsOrder(container) {
+        const productElements = container.querySelectorAll('.draggable-product');
+        const orderData = Array.from(productElements).map((element, index) => ({
+            product_id: parseInt(element.dataset.productId),
+            order_index: index
+        }));
+
+        try {
+            const response = await fetch(`/api/v1/tabs/subtabs/${this.id}/products/reorder`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ products: orderData })
+            });
+
+            if (!response.ok) {
+                throw new Error('Ошибка при обновлении порядка товаров');
+            }
+
+            console.log('Порядок товаров обновлен');
+            
+            // Обновляем данные подвкладки для синхронизации с основной таблицей
+            await this.refreshSubtabData();
+            
+            // Если эта подвкладка активна, перезагружаем основную таблицу
+            if (window.activeSubtab && window.activeSubtab.id === this.id) {
+                if (typeof loadPage === 'function') {
+                    loadPage();
+                }
+            }
+        } catch (error) {
+            console.error('Ошибка при обновлении порядка товаров:', error);
+            // Можно показать уведомление пользователю
+        }
     }
 
     /**
@@ -689,6 +844,25 @@ class Subtab {
         return this.products
             .filter(p => p.is_active)
             .map(p => p.product_remonline_id);
+    }
+
+    /**
+     * Обновляет данные подвкладки с сервера
+     */
+    async refreshSubtabData() {
+        try {
+            const response = await fetch(`/api/v1/tabs/subtabs/${this.id}/products`);
+            if (!response.ok) {
+                throw new Error('Ошибка загрузки данных подвкладки');
+            }
+            
+            const data = await response.json();
+            this.products = data || [];
+            
+            console.log('Данные подвкладки обновлены');
+        } catch (error) {
+            console.error('Ошибка обновления данных подвкладки:', error);
+        }
     }
 
     /**

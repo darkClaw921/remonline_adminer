@@ -368,3 +368,29 @@
         gap: 4px;
     }
 }
+
+/* Стили для drag&drop товаров */
+.draggable-product.dragging {
+    opacity: 0.5;
+    transform: scale(0.95);
+}
+
+.draggable-product.drag-over {
+    border-top: 3px solid #007bff;
+    margin-top: 3px;
+}
+
+.draggable-product.drag-over-bottom {
+    border-bottom: 3px solid #007bff;
+    margin-bottom: 3px;
+}
+
+.drag-handle {
+    font-size: 16px;
+    line-height: 1;
+    user-select: none;
+}
+
+.drag-handle:hover {
+    color: #007bff !important;
+}

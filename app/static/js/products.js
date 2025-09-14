@@ -418,6 +418,7 @@ let state = {
     sortBy: 'name',
     sortOrder: 'desc',
   },
+  userSortActive: false, // Флаг активности пользовательской сортировки
   allProducts: [],
   isLoading: false,
   hasMore: true,
@@ -570,6 +571,7 @@ resetBtn?.addEventListener('click', () => {
   if (stockMaxEl) stockMaxEl.value = '';
   // Сброс состояния
   state.filters = { categories: [], warehouses: [], priceMin: null, priceMax: null, stockMin: null, stockMax: null, sortBy: 'name', sortOrder: 'desc' };
+  state.userSortActive = false; // Сбрасываем пользовательскую сортировку
   state.page = 1;
   
   // Если активна подвкладка, используем клиентскую фильтрацию
@@ -828,7 +830,8 @@ async function loadPage(useFilters = false) {
         subtabProducts.forEach(sp => {
           subtabProductsMap.set(sp.product_remonline_id, {
             custom_name: sp.custom_name,
-            custom_category: sp.custom_category
+            custom_category: sp.custom_category,
+            order_index: sp.order_index !== undefined ? sp.order_index : 0
           });
         });
         
@@ -843,16 +846,26 @@ async function loadPage(useFilters = false) {
               display_name: subtabData.custom_name || product.name,
               display_category: subtabData.custom_category || product.category,
               is_custom_name: !!subtabData.custom_name,
-              is_custom_category: !!subtabData.custom_category
+              is_custom_category: !!subtabData.custom_category,
+              subtab_order_index: subtabData.order_index
             };
           }
+          // Этот товар не должен попадать сюда, так как он уже отфильтрован
           return {
             ...product,
             display_name: product.name,
             display_category: product.category,
             is_custom_name: false,
-            is_custom_category: false
+            is_custom_category: false,
+            subtab_order_index: 999999 // Большое число для товаров без порядка
           };
+        });
+        
+        // Сортируем товары по порядку из подвкладки
+        products.sort((a, b) => {
+          const orderA = a.subtab_order_index !== undefined ? a.subtab_order_index : 999999;
+          const orderB = b.subtab_order_index !== undefined ? b.subtab_order_index : 999999;
+          return orderA - orderB;
         });
       }
     }
@@ -870,7 +883,7 @@ async function loadPage(useFilters = false) {
       
       const totalStock = warehousesToCount.reduce((sum, whId) => sum + (Number(stocks[whId]) || 0), 0);
       
-      return {
+      const finalProduct = {
         id: product.id,
         remonline_id: product.remonline_id,
         name: product.display_name || product.name,
@@ -886,7 +899,10 @@ async function loadPage(useFilters = false) {
         images: normalizeImageUrls(product.images_json),
         prices: normalizePrices(product.prices_json),
         totalStock: totalStock,
+        subtab_order_index: product.subtab_order_index !== undefined ? product.subtab_order_index : 999999,
       };
+      
+      return finalProduct;
     });
 
     // Обычная пагинация - заменяем данные на каждой странице
@@ -1131,6 +1147,21 @@ function sortProducts(products) {
   const dir = f.sortOrder === 'asc' ? 1 : -1;
   const by = f.sortBy || 'name';
   const copy = products.slice();
+  
+  // Если активна подвкладка и НЕТ пользовательской сортировки, используем порядок из подвкладки
+  if (window.activeSubtab && !state.userSortActive) {
+    
+    copy.sort((a, b) => {
+      const orderA = a.subtab_order_index !== undefined ? Number(a.subtab_order_index) : 999999;
+      const orderB = b.subtab_order_index !== undefined ? Number(b.subtab_order_index) : 999999;
+      return orderA - orderB;
+    });
+    
+    
+    return copy;
+  }
+  
+  // Применяем пользовательскую сортировку
   copy.sort((a, b) => {
     let va, vb;
     if (by === 'name') { va = a.name || ''; vb = b.name || ''; return va.localeCompare(vb) * dir; }
@@ -1333,6 +1364,9 @@ if (theadEl) {
     const key = getSortKeyForHeader(th);
     if (!key) return;
     
+    // Активируем пользовательскую сортировку
+    state.userSortActive = true;
+    
     if (state.filters.sortBy === key) {
       state.filters.sortOrder = (state.filters.sortOrder === 'asc') ? 'desc' : 'asc';
     } else {
@@ -1363,11 +1397,10 @@ function getSortKeyForHeader(th) {
 
 function markSortableHeaders() {
   const ths = document.querySelectorAll('thead th');
-  console.log('markSortableHeaders: found', ths.length, 'headers');
   ths.forEach(th => {
     const key = getSortKeyForHeader(th);
     if (key) {
-      console.log('Adding arrows to header:', th.textContent, 'key:', key);
+      // console.log('Adding arrows to header:', th.textContent, 'key:', key);
       th.classList.add('sortable');
       addSortArrows(th, key);
     } else {
@@ -1399,8 +1432,15 @@ function updateSortArrows(th, sortKey) {
   
   if (!arrow) return;
   
+  // Если активна подвкладка и нет пользовательской сортировки, скрываем все стрелочки
+  if (window.activeSubtab && !state.userSortActive) {
+    arrow.classList.remove('active');
+    arrow.innerHTML = '↓';
+    return;
+  }
+  
   // Проверяем, активна ли эта колонка для сортировки
-  if (state.filters.sortBy === sortKey) {
+  if (state.userSortActive && state.filters.sortBy === sortKey) {
     arrow.classList.add('active');
     // Устанавливаем направление стрелочки
     if (state.filters.sortOrder === 'asc') {
@@ -1469,6 +1509,9 @@ function onActiveSubtabChanged(subtab) {
   
   // Сохраняем активную подвкладку для фильтрации
   window.activeSubtab = subtab;
+  
+  // Сбрасываем пользовательскую сортировку при смене подвкладки
+  state.userSortActive = false;
   
   if (subtab) {
     // Фильтруем товары по подвкладке

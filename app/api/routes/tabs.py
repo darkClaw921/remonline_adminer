@@ -537,3 +537,43 @@ async def remove_product_from_subtab_by_id(product_id: int, db: Session = Depend
         logger.error(f"Ошибка удаления товара из подвкладки: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail="Ошибка удаления товара")
+
+@router.post("/subtabs/{subtab_id}/products/reorder")
+async def reorder_subtab_products(subtab_id: int, request: dict, db: Session = Depends(get_db)):
+    """Изменить порядок товаров в подвкладке"""
+    try:
+        # Проверяем существование подвкладки
+        subtab = db.query(SubTab).filter(SubTab.id == subtab_id).first()
+        if not subtab:
+            raise HTTPException(status_code=404, detail="Подвкладка не найдена")
+        
+        products_order = request.get("products", [])
+        if not products_order:
+            raise HTTPException(status_code=400, detail="Не указан порядок товаров")
+        
+        # Обновляем order_index для каждого товара
+        for item in products_order:
+            product_id = item.get("product_id")
+            order_index = item.get("order_index")
+            
+            if product_id is None or order_index is None:
+                continue
+                
+            db_product = db.query(SubTabProduct).filter(
+                SubTabProduct.id == product_id,
+                SubTabProduct.subtab_id == subtab_id
+            ).first()
+            
+            if db_product:
+                db_product.order_index = order_index
+        
+        db.commit()
+        
+        logger.info(f"Обновлен порядок товаров в подвкладке {subtab_id}")
+        return {"message": "Порядок товаров обновлен", "updated_count": len(products_order)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка изменения порядка товаров: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Ошибка изменения порядка товаров")
