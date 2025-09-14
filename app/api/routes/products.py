@@ -32,7 +32,11 @@ async def get_products_filtered(
     
     # Применяем текстовые фильтры
     if name:
-        query = query.filter(Product.name.ilike(f"%{name}%"))
+        # Нечеткий поиск по названию и RemID
+        query = query.filter(or_(
+            Product.name.ilike(f"%{name}%"),
+            Product.remonline_id.ilike(f"%{name}%")
+        ))
     if sku:
         query = query.filter(Product.sku.ilike(f"%{sku}%"))
     if category:
@@ -174,7 +178,11 @@ async def get_products(
 
     # Применяем фильтры
     if name:
-        query = query.filter(Product.name.ilike(f"%{name}%"))
+        # Нечеткий поиск по названию и RemID
+        query = query.filter(or_(
+            Product.name.ilike(f"%{name}%"),
+            Product.remonline_id.ilike(f"%{name}%")
+        ))
     if sku:
         query = query.filter(Product.sku.ilike(f"%{sku}%"))
     if category:
