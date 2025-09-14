@@ -192,7 +192,7 @@ class Subtab {
                     <div class="modal-body">
                         <div class="row mb-3">
                             <div class="col-md-6">
-                                <input type="text" class="form-control" id="productSearch" placeholder="Поиск товаров...">
+                                <input type="text" class="form-control" id="productSearch" placeholder="Поиск по названию или RemID...">
                             </div>
                             <div class="col-md-6">
                                 <button type="button" class="btn btn-primary" id="addSelectedProducts">
@@ -290,7 +290,8 @@ class Subtab {
                     const filtered = allProducts.filter(p => 
                         !subtabProductIds.includes(p.remonline_id) &&
                         (p.name.toLowerCase().includes(query) || 
-                         (p.custom_name && p.custom_name.toLowerCase().includes(query)))
+                         (p.custom_name && p.custom_name.toLowerCase().includes(query)) ||
+                         (p.remonline_id && p.remonline_id.toString().includes(query)))
                     );
                     this.renderProductsList(availableContainer, filtered, 'available');
                 }, 300);
