@@ -95,7 +95,6 @@
 /* Стили вкладок */
 .tab-item {
     min-width: 120px;
-    max-width: 200px;
     background: #f8f9fa;
     border: 1px solid #dee2e6;
     border-bottom: none;

@@ -43,7 +43,7 @@ class TabsManager {
                 </div>
                 <div class="subtabs-container" style="display: none;">
                     <div class="subtabs-header">
-                        <button class="btn-add-subtab" title="Добавить подвкладку">+ Подвкладка</button>
+                        <button class="btn-add-subtab" title="Добавить лист">+ Листы</button>
                         <div class="subtabs-list"></div>
                     </div>
                 </div>
