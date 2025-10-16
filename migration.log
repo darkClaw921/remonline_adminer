@@ -1,0 +1,22 @@
+2025-10-16 12:27:31.930 | INFO     | __main__:<module>:29 - SQLite URL: sqlite:///./remonline.db
+2025-10-16 12:27:31.930 | INFO     | __main__:<module>:30 - PostgreSQL URL: ***p***o***s***t***g***r***e***s***q***l***:***/***/***:***@***:***5***4***3***2***/***r***e***m***o***n***l***i***n***e***_***d***b***
+2025-10-16 12:27:31.937 | INFO     | __main__:main:150 - ============================================================
+2025-10-16 12:27:31.937 | INFO     | __main__:main:151 - НАЧАЛО МИГРАЦИИ ДАННЫХ ИЗ SQLITE В POSTGRESQL
+2025-10-16 12:27:31.937 | INFO     | __main__:main:152 - ============================================================
+2025-10-16 12:27:31.937 | INFO     | __main__:create_tables:42 - Создание таблиц в PostgreSQL...
+2025-10-16 12:27:31.939 | ERROR    | __main__:main:192 - 
+✗ МИГРАЦИЯ ПРЕРВАНА С ОШИБКОЙ: (psycopg2.OperationalError) connection to server on socket "/tmp/.s.PGSQL.5432" failed: No such file or directory
+	Is the server running locally and accepting connections on that socket?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-10-16 12:27:52.900 | INFO     | __main__:<module>:29 - SQLite URL: sqlite:///./remonline.db
+2025-10-16 12:27:52.900 | INFO     | __main__:<module>:30 - PostgreSQL URL: ***p***o***s***t***g***r***e***s***q***l***:***/***/***:***@***:***5***4***3***2***/***r***e***m***o***n***l***i***n***e***_***d***b***
+2025-10-16 12:27:52.904 | INFO     | __main__:main:150 - ============================================================
+2025-10-16 12:27:52.904 | INFO     | __main__:main:151 - НАЧАЛО МИГРАЦИИ ДАННЫХ ИЗ SQLITE В POSTGRESQL
+2025-10-16 12:27:52.904 | INFO     | __main__:main:152 - ============================================================
+2025-10-16 12:27:52.904 | INFO     | __main__:create_tables:42 - Создание таблиц в PostgreSQL...
+2025-10-16 12:27:52.906 | ERROR    | __main__:main:192 - 
+✗ МИГРАЦИЯ ПРЕРВАНА С ОШИБКОЙ: (psycopg2.OperationalError) connection to server on socket "/tmp/.s.PGSQL.5432" failed: No such file or directory
+	Is the server running locally and accepting connections on that socket?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)

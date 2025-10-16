@@ -119,7 +119,15 @@ class TabsManager {
      */
     async loadTabs() {
         try {
-            const response = await fetch('/api/v1/tabs/?active_only=true&limit=1000');
+            // Формируем URL с учётом активной главной вкладки
+            let url = '/api/v1/tabs/?active_only=true&limit=1000';
+            
+            // Добавляем фильтр по главной вкладке если активна не "все"
+            if (window.activeMainTabType && window.activeMainTabType !== 'all') {
+                url += `&main_tab_type=${window.activeMainTabType}`;
+            }
+            
+            const response = await fetch(url);
             if (response.ok) {
                 const tabsData = await response.json();
                 

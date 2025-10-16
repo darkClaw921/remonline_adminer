@@ -63,6 +63,7 @@ class TabBase(BaseModel):
     name: str
     order_index: int = 0
     is_active: bool = True
+    main_tab_type: Optional[str] = None  # apple, android или null
 
 
 class TabCreate(TabBase):
@@ -73,6 +74,7 @@ class TabUpdate(BaseModel):
     name: Optional[str] = None
     order_index: Optional[int] = None
     is_active: Optional[bool] = None
+    main_tab_type: Optional[str] = None
 
 
 class TabReorder(BaseModel):
@@ -148,9 +150,38 @@ class TabResponse(BaseModel):
     name: str
     order_index: int
     is_active: bool
+    main_tab_type: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     subtabs: List[SubTabResponse] = []
+
+    class Config:
+        from_attributes = True
+
+
+class TabListResponse(BaseModel):
+    """Упрощенная схема для быстрой загрузки списка вкладок без подвкладок"""
+    id: int
+    name: str
+    order_index: int
+    is_active: bool
+    main_tab_type: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SubTabListResponse(BaseModel):
+    """Упрощенная схема для быстрой загрузки списка подвкладок без товаров"""
+    id: int
+    tab_id: int
+    name: str
+    order_index: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

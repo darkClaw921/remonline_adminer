@@ -10,7 +10,7 @@ from app.models import Base, engine
 from app.api import api_router
 from app.services import BackgroundService
 from app.core.config import settings
-
+from prometheus_fastapi_instrumentator import Instrumentator
 # Создаем таблицы в базе данных
 Base.metadata.create_all(bind=engine)
 
@@ -20,7 +20,7 @@ app = FastAPI(
     description="API для работы с данными Remonline",
     version="1.0.0"
 )
-
+Instrumentator().instrument(app).expose(app)
 # Настраиваем CORS
 app.add_middleware(
     CORSMiddleware,
@@ -40,7 +40,7 @@ background_service = BackgroundService()
 async def startup_event():
     """Действия при запуске приложения"""
     logger.info("Starting Remonline Adminer API")
-    logger.info(f"Database URL: {settings.DATABASE_URL}")
+    # logger.info(f"Database URL: {settings.DATABASE_URL}")
     logger.info(f"Update interval: {settings.UPDATE_INTERVAL_MINUTES} minutes")
 
     # Запускаем фоновые задачи

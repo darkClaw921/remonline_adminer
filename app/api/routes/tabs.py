@@ -1,12 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session, selectinload
 from typing import List
 from loguru import logger
 
 from ...models import get_db, Tab, SubTab, SubTabProduct
 from ..schemas import (
-    TabResponse, TabCreate, TabUpdate, TabReorder,
-    SubTabResponse, SubTabCreate, SubTabUpdate,
+    TabResponse, TabCreate, TabUpdate, TabReorder, TabListResponse,
+    SubTabResponse, SubTabCreate, SubTabUpdate, SubTabListResponse,
     SubTabProductResponse, SubTabProductCreate, SubTabProductUpdate
 )
 
@@ -14,18 +14,55 @@ router = APIRouter()
 
 
 # Роуты для вкладок
+@router.get("/list", response_model=List[TabListResponse])
+async def get_tabs_list(
+    skip: int = 0,
+    limit: int = 100,
+    active_only: bool = True,
+    main_tab_type: str = None,
+    db: Session = Depends(get_db)
+):
+    """Быстрая загрузка списка вкладок БЕЗ подвкладок и товаров (для производительности)"""
+    try:
+        query = db.query(Tab)
+        
+        if active_only:
+            query = query.filter(Tab.is_active == True)
+        
+        if main_tab_type:
+            query = query.filter(Tab.main_tab_type == main_tab_type)
+        
+        tabs = query.order_by(Tab.order_index, Tab.id).offset(skip).limit(limit).all()
+        return tabs
+    except Exception as e:
+        logger.error(f"Ошибка получения вкладок: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка получения вкладок")
+
+
 @router.get("/", response_model=List[TabResponse])
 async def get_tabs(
     skip: int = 0,
     limit: int = 100,
     active_only: bool = True,
+    main_tab_type: str = None,
+    include_subtabs: bool = Query(True, description="Включить подвкладки и товары"),
     db: Session = Depends(get_db)
 ):
-    """Получить список всех вкладок"""
+    """Получить список всех вкладок с оптимизированной загрузкой связанных данных"""
     try:
         query = db.query(Tab)
+        
+        # Оптимизация: предзагрузка связанных данных одним запросом вместо N+1
+        if include_subtabs:
+            query = query.options(
+                selectinload(Tab.subtabs).selectinload(SubTab.products)
+            )
+        
         if active_only:
             query = query.filter(Tab.is_active == True)
+        
+        if main_tab_type:
+            query = query.filter(Tab.main_tab_type == main_tab_type)
         
         tabs = query.order_by(Tab.order_index, Tab.id).offset(skip).limit(limit).all()
         return tabs
@@ -161,9 +198,10 @@ async def get_subtabs(
     skip: int = 0,
     limit: int = 100,
     active_only: bool = True,
+    include_products: bool = Query(True, description="Включить товары в подвкладках"),
     db: Session = Depends(get_db)
 ):
-    """Получить подвкладки для вкладки"""
+    """Получить подвкладки для вкладки с оптимизированной загрузкой"""
     try:
         # Проверяем существование вкладки
         tab = db.query(Tab).filter(Tab.id == tab_id).first()
@@ -171,6 +209,11 @@ async def get_subtabs(
             raise HTTPException(status_code=404, detail="Вкладка не найдена")
         
         query = db.query(SubTab).filter(SubTab.tab_id == tab_id)
+        
+        # Оптимизация: предзагрузка товаров одним запросом
+        if include_products:
+            query = query.options(selectinload(SubTab.products))
+        
         if active_only:
             query = query.filter(SubTab.is_active == True)
         
@@ -243,31 +286,17 @@ async def update_subtab(subtab_id: int, subtab_update: SubTabUpdate, db: Session
 
 @router.get("/subtabs/{subtab_id}", response_model=SubTabResponse)
 async def get_subtab(subtab_id: int, db: Session = Depends(get_db)):
-    """Получить подвкладку по ID"""
+    """Получить подвкладку по ID с оптимизированной загрузкой товаров"""
     try:
-        subtab = db.query(SubTab).filter(SubTab.id == subtab_id).first()
+        # Используем selectinload для предзагрузки товаров одним запросом
+        subtab = db.query(SubTab).options(
+            selectinload(SubTab.products)
+        ).filter(SubTab.id == subtab_id).first()
+        
         if not subtab:
             raise HTTPException(status_code=404, detail="Подвкладка не найдена")
         
-        # Загружаем товары для подвкладки
-        products = db.query(SubTabProduct).filter(
-            SubTabProduct.subtab_id == subtab_id,
-            SubTabProduct.is_active == True
-        ).order_by(SubTabProduct.order_index, SubTabProduct.id).all()
-        
-        # Добавляем товары к ответу
-        subtab_dict = {
-            "id": subtab.id,
-            "tab_id": subtab.tab_id,
-            "name": subtab.name,
-            "order_index": subtab.order_index,
-            "is_active": subtab.is_active,
-            "created_at": subtab.created_at,
-            "updated_at": subtab.updated_at,
-            "products": products
-        }
-        
-        return subtab_dict
+        return subtab
     except HTTPException:
         raise
     except Exception as e:
@@ -393,8 +422,17 @@ async def add_products_to_subtab(subtab_id: int, request: dict, db: Session = De
             ).first()
             
             if existing:
-                logger.warning(f"Товар {product_id} уже добавлен в подвкладку {subtab.name}")
-                continue
+                if existing.is_active:
+                    logger.warning(f"Товар {product_id} уже активен в подвкладке {subtab.name}")
+                    continue
+                else:
+                    # Активируем существующий товар
+                    existing.is_active = True
+                    existing.order_index = order_index
+                    added_products.append(existing)
+                    logger.info(f"Активирован товар {product_id} в подвкладке {subtab.name}")
+                    order_index += 1
+                    continue
             
             db_product = SubTabProduct(
                 subtab_id=subtab_id,
@@ -440,7 +478,24 @@ async def add_single_product_to_subtab(subtab_id: int, product: SubTabProductCre
         ).first()
         
         if existing:
-            raise HTTPException(status_code=400, detail="Товар уже добавлен в эту подвкладку")
+            if existing.is_active:
+                raise HTTPException(status_code=400, detail="Товар уже добавлен в эту подвкладку")
+            else:
+                # Активируем существующий товар
+                existing.is_active = True
+                existing.custom_name = product.custom_name
+                existing.custom_category = product.custom_category
+                # Получаем максимальный order_index
+                max_order = db.query(SubTabProduct).filter(
+                    SubTabProduct.subtab_id == subtab_id,
+                    SubTabProduct.is_active == True
+                ).order_by(SubTabProduct.order_index.desc()).first()
+                existing.order_index = (max_order.order_index + 1) if max_order else 0
+                
+                db.commit()
+                db.refresh(existing)
+                logger.info(f"Активирован товар {product.product_remonline_id} в подвкладке {subtab.name}")
+                return existing
         
         # Получаем максимальный order_index
         max_order = db.query(SubTabProduct).filter(SubTabProduct.subtab_id == subtab_id).order_by(SubTabProduct.order_index.desc()).first()

@@ -174,79 +174,110 @@ async def _run_full_sync_task():
                         # Для этого склада есть следующая страница
                         page_index_by_wh[wh.remonline_id] = page + 1
 
-                    # Апсерты одним проходом
+                    # Оптимизированные апсерты одним проходом
                     from ...models import Product, Stock
-                    # Кэш существующих продуктов по remonline_id
+                    from sqlalchemy.dialects.postgresql import insert as pg_insert
+                    
+                    # Получаем существующие продукты одним запросом с индексом
+                    remonline_ids = [x["remonline_id"] for x in products_to_upsert]
                     existing_products = {
-                        p.remonline_id: p for p in db.query(Product).filter(Product.remonline_id.in_([x["remonline_id"] for x in products_to_upsert])).all()
+                        p.remonline_id: p 
+                        for p in db.query(Product).filter(Product.remonline_id.in_(remonline_ids)).all()
                     }
 
+                    # Разделяем на новые и обновляемые продукты
+                    products_to_insert = []
+                    products_to_update = []
+                    
                     for pdata in products_to_upsert:
-                        p = existing_products.get(pdata["remonline_id"])  # может None
                         category_title = None
                         if isinstance(pdata.get("category_json"), dict):
                             category_title = pdata["category_json"].get("title")
-                        if p is None:
-                            p = Product(
-                                remonline_id=pdata["remonline_id"],
-                                name=pdata["name"],
-                                sku=pdata["sku"],
-                                barcode=pdata["barcode"],
-                                code=pdata["code"],
-                                uom_json=pdata["uom_json"],
-                                images_json=pdata["images_json"],
-                                prices_json=pdata["prices_json"],
-                                category_json=pdata["category_json"],
-                                category=category_title,
-                                custom_fields_json=pdata["custom_fields_json"],
-                                barcodes_json=pdata["barcodes_json"],
-                                is_serial=pdata["is_serial"],
-                                warranty=pdata["warranty"],
-                                warranty_period=pdata["warranty_period"],
-                                description=pdata["description"],
-                                price=pdata["price"],
-                            )
-                            db.add(p)
-                            existing_products[p.remonline_id] = p
-                            db.flush()
+                        
+                        product_data = {
+                            "remonline_id": pdata["remonline_id"],
+                            "name": pdata["name"],
+                            "sku": pdata["sku"],
+                            "barcode": pdata["barcode"],
+                            "code": pdata["code"],
+                            "uom_json": pdata["uom_json"],
+                            "images_json": pdata["images_json"],
+                            "prices_json": pdata["prices_json"],
+                            "category_json": pdata["category_json"],
+                            "category": category_title,
+                            "custom_fields_json": pdata["custom_fields_json"],
+                            "barcodes_json": pdata["barcodes_json"],
+                            "is_serial": pdata["is_serial"],
+                            "warranty": pdata["warranty"],
+                            "warranty_period": pdata["warranty_period"],
+                            "description": pdata["description"],
+                            "price": pdata["price"],
+                        }
+                        
+                        if pdata["remonline_id"] not in existing_products:
+                            products_to_insert.append(product_data)
                         else:
-                            p.name = pdata["name"] or p.name
-                            p.sku = pdata["sku"] or p.sku
-                            if pdata["barcode"]: p.barcode = pdata["barcode"]
-                            if pdata["code"]: p.code = pdata["code"]
-                            if pdata["uom_json"] is not None: p.uom_json = pdata["uom_json"]
-                            if pdata["images_json"] is not None: p.images_json = pdata["images_json"]
-                            if pdata["prices_json"] is not None: p.prices_json = pdata["prices_json"]
-                            if pdata["category_json"] is not None:
-                                p.category_json = pdata["category_json"]
-                                if category_title: p.category = category_title
-                            if pdata["custom_fields_json"] is not None: p.custom_fields_json = pdata["custom_fields_json"]
-                            p.is_serial = pdata["is_serial"]
-                            if pdata["warranty"] is not None: p.warranty = pdata["warranty"]
-                            if pdata["warranty_period"] is not None: p.warranty_period = pdata["warranty_period"]
-                            if pdata["description"] is not None: p.description = pdata["description"]
-                            if pdata["price"] is not None: p.price = pdata["price"]
+                            product_data["id"] = existing_products[pdata["remonline_id"]].id
+                            products_to_update.append(product_data)
+                    
+                    # Bulk insert новых товаров
+                    if products_to_insert:
+                        db.bulk_insert_mappings(Product, products_to_insert)
+                        db.flush()
+                        # Обновляем кэш существующих продуктов
+                        new_products = db.query(Product).filter(Product.remonline_id.in_(remonline_ids)).all()
+                        existing_products = {p.remonline_id: p for p in new_products}
+                    
+                    # Bulk update существующих товаров
+                    if products_to_update:
+                        db.bulk_update_mappings(Product, products_to_update)
 
-                    # Апсерты по остаткам (по product_id)
-                    # Сопоставим product_rem_id -> product.id
+                    # Оптимизированные апсерты по остаткам
                     rem_to_id = {rem_id: prod.id for rem_id, prod in existing_products.items()}
+                    
+                    # Получаем существующие остатки для этой пачки
+                    stock_keys = [(sdata["warehouse_id"], rem_to_id.get(sdata["product_rem_id"])) 
+                                  for sdata in stocks_to_upsert 
+                                  if rem_to_id.get(sdata["product_rem_id"])]
+                    
+                    existing_stocks = {}
+                    if stock_keys:
+                        product_ids = [k[1] for k in stock_keys]
+                        warehouse_ids = list(set(k[0] for k in stock_keys))
+                        stocks_query = db.query(Stock).filter(
+                            Stock.warehouse_id.in_(warehouse_ids),
+                            Stock.product_id.in_(product_ids)
+                        ).all()
+                        existing_stocks = {(s.warehouse_id, s.product_id): s for s in stocks_query}
+                    
+                    stocks_to_insert = []
+                    stocks_to_update = []
+                    
                     for sdata in stocks_to_upsert:
-                        prod_id = rem_to_id.get(sdata["product_rem_id"]) or db.query(Product.id).filter(Product.remonline_id == sdata["product_rem_id"]).scalar()
+                        prod_id = rem_to_id.get(sdata["product_rem_id"])
                         if not prod_id:
                             continue
-                        stock = db.query(Stock).filter_by(warehouse_id=sdata["warehouse_id"], product_id=prod_id).first()
-                        if not stock:
-                            stock = Stock(
-                                warehouse_id=sdata["warehouse_id"],
-                                product_id=prod_id,
-                                quantity=sdata["quantity"],
-                                reserved_quantity=0,
-                                available_quantity=sdata["quantity"],
-                            )
-                            db.add(stock)
+                        
+                        stock_key = (sdata["warehouse_id"], prod_id)
+                        stock_data = {
+                            "warehouse_id": sdata["warehouse_id"],
+                            "product_id": prod_id,
+                            "quantity": sdata["quantity"],
+                            "reserved_quantity": 0,
+                            "available_quantity": sdata["quantity"],
+                        }
+                        
+                        if stock_key not in existing_stocks:
+                            stocks_to_insert.append(stock_data)
                         else:
-                            stock.quantity = sdata["quantity"]
-                            stock.available_quantity = sdata["quantity"]
+                            stock_data["id"] = existing_stocks[stock_key].id
+                            stocks_to_update.append(stock_data)
+                    
+                    # Bulk operations для остатков
+                    if stocks_to_insert:
+                        db.bulk_insert_mappings(Stock, stocks_to_insert)
+                    if stocks_to_update:
+                        db.bulk_update_mappings(Stock, stocks_to_update)
 
                     # Коммит одним разом за пачку результатов
                     db.commit()

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Boolean, JSON
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Boolean, JSON, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -8,13 +8,13 @@ class Product(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     remonline_id = Column(Integer, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False)
+    name = Column(String, nullable=False, index=True)
     sku = Column(String, index=True)
     barcode = Column(String, index=True)
     description = Column(Text)
-    price = Column(Float)
-    category = Column(String)
-    is_active = Column(Boolean, default=True)
+    price = Column(Float, index=True)
+    category = Column(String, index=True)
+    is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -32,3 +32,9 @@ class Product(Base):
     is_serial = Column(Boolean, default=False)
     warranty = Column(Integer)
     warranty_period = Column(Integer)
+    
+    # Составные индексы для оптимизации запросов
+    __table_args__ = (
+        Index('idx_product_active_category', 'is_active', 'category'),
+        Index('idx_product_active_price', 'is_active', 'price'),
+    )

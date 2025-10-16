@@ -37,8 +37,8 @@ class RemonlineService:
     async def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Выполнить запрос к API Remonline"""
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        # print(params)
-        logger.info(f"Making request to {params.url}")
+        params_str = f" with params: {params}" if params else ""
+        logger.info(f"Making request to {url}{params_str}")
 
         try:
             response = await self.client.get(url, params=params)

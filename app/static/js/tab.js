@@ -200,6 +200,18 @@ class Subtab {
                                 </button>
                             </div>
                         </div>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <textarea class="form-control" id="bulkProductIds" rows="2" placeholder="Введите ID товаров через запятую или пробелы (например: 123, 456 789)"></textarea>
+                                <small class="form-text text-muted">Можно вводить ID товаров через запятую, пробел или новую строку</small>
+                            </div>
+                            <div class="col-md-6">
+                                <button type="button" class="btn btn-success" id="addBulkProducts">
+                                    Добавить по ID
+                                </button>
+                                <div id="bulkAddResult" class="mt-2"></div>
+                            </div>
+                        </div>
                         <div class="row">
                             <div class="col-md-6">
                                 <h6>Доступные товары</h6>
@@ -243,8 +255,8 @@ class Subtab {
         const addButton = modal.querySelector('#addSelectedProducts');
         
         try {
-            // Загружаем все товары
-            const response = await fetch('/api/v1/products/?limit=1000');
+            // Загружаем все товары (увеличен лимит для корректной работы с подвкладками)
+            const response = await fetch('/api/v1/products/?limit=50000');
             const data = await response.json();
             const allProducts = data.data || [];
             
@@ -261,14 +273,35 @@ class Subtab {
             // Обогащаем данные товаров в подвкладке информацией из общего списка
             const currentProducts = subtabProductsData.map(subtabProduct => {
                 const fullProduct = allProducts.find(p => p.remonline_id === subtabProduct.product_remonline_id);
-                return {
-                    ...fullProduct,
-                    id: subtabProduct.id, // ID записи SubTabProduct для редактирования
-                    custom_name: subtabProduct.custom_name,
-                    custom_category: subtabProduct.custom_category,
-                    product_remonline_id: subtabProduct.product_remonline_id,
-                    order_index: subtabProduct.order_index // Сохраняем порядок
-                };
+                
+                if (fullProduct) {
+                    // Товар найден в общем списке
+                    return {
+                        ...fullProduct,
+                        id: subtabProduct.id, // ID записи SubTabProduct для редактирования
+                        custom_name: subtabProduct.custom_name,
+                        custom_category: subtabProduct.custom_category,
+                        product_remonline_id: subtabProduct.product_remonline_id,
+                        order_index: subtabProduct.order_index // Сохраняем порядок
+                    };
+                } else {
+                    // Товар не найден в общем списке - создаем заглушку
+                    return {
+                        id: subtabProduct.id,
+                        remonline_id: subtabProduct.product_remonline_id,
+                        product_remonline_id: subtabProduct.product_remonline_id,
+                        name: subtabProduct.custom_name || `Товар ID ${subtabProduct.product_remonline_id}`,
+                        custom_name: subtabProduct.custom_name,
+                        category: subtabProduct.custom_category || 'Не найден в базе',
+                        custom_category: subtabProduct.custom_category,
+                        sku: '-',
+                        price: null,
+                        images: [],
+                        order_index: subtabProduct.order_index,
+                        is_missing: true, // Помечаем как отсутствующий товар
+                        updated_at: subtabProduct.updated_at
+                    };
+                }
             });
             
             // Обновляем данные подвкладки с правильным порядком
@@ -302,6 +335,12 @@ class Subtab {
                 this.addSelectedProductsToSubtab(modal);
             });
             
+            // Настраиваем кнопку массового добавления по ID
+            const bulkAddButton = modal.querySelector('#addBulkProducts');
+            bulkAddButton.addEventListener('click', () => {
+                this.addBulkProductsByIds(modal);
+            });
+            
         } catch (error) {
             console.error('Ошибка загрузки товаров:', error);
             availableContainer.innerHTML = '<div class="alert alert-danger">Ошибка загрузки товаров</div>';
@@ -324,8 +363,11 @@ class Subtab {
                 const displayName = product.custom_name || product.name;
                 const displayCategory = product.custom_category || product.category || 'Без категории';
                 
+                const cardClass = product.is_missing ? 'card mb-2 draggable-product border-warning' : 'card mb-2 draggable-product';
+                const missingBadge = product.is_missing ? '<span class="badge bg-warning text-dark ms-1">Не в БД</span>' : '';
+                
                 return `
-                    <div class="card mb-2 draggable-product" data-product-id="${product.id}" data-remonline-id="${product.product_remonline_id || product.remonline_id}" draggable="true">
+                    <div class="${cardClass}" data-product-id="${product.id}" data-remonline-id="${product.product_remonline_id || product.remonline_id}" draggable="true">
                         <div class="card-body p-2">
                             <div class="row align-items-center">
                                 <div class="col-auto pe-2">
@@ -335,15 +377,17 @@ class Subtab {
                                     <div class="mb-1">
                                         <strong class="editable-name" data-field="custom_name" title="Клик для редактирования">${displayName}</strong>
                                         ${product.custom_name ? '<small class="text-success ms-1">✓</small>' : ''}
+                                        ${missingBadge}
                                     </div>
-                                    ${product.custom_name ? `<div class="mb-1"><small class="text-muted">Оригинал: ${product.name}</small></div>` : ''}
+                                    ${product.custom_name && !product.is_missing ? `<div class="mb-1"><small class="text-muted">Оригинал: ${product.name}</small></div>` : ''}
                                     <div class="mb-1">
                                         <span class="text-muted">Категория: </span>
                                         <span class="editable-category" data-field="custom_category" title="Клик для редактирования">${displayCategory}</span>
                                         ${product.custom_category ? '<small class="text-success ms-1">✓</small>' : ''}
                                     </div>
-                                    ${product.custom_category ? `<div class="mb-1"><small class="text-muted">Оригинал категории: ${product.category || 'Без категории'}</small></div>` : ''}
+                                    ${product.custom_category && !product.is_missing ? `<div class="mb-1"><small class="text-muted">Оригинал категории: ${product.category || 'Без категории'}</small></div>` : ''}
                                     <small class="text-muted">ID: ${product.product_remonline_id || product.remonline_id} | SKU: ${product.sku || '-'} | Порядок: ${product.order_index}</small>
+                                    ${product.is_missing ? '<div><small class="text-warning">⚠️ Товар отсутствует в локальной базе данных</small></div>' : ''}
                                 </div>
                                 <div class="col-auto">
                                     <button type="button" class="btn btn-sm btn-outline-danger" 
@@ -507,8 +551,9 @@ class Subtab {
             // Обновляем данные подвкладки для синхронизации с основной таблицей
             await this.refreshSubtabData();
             
-            // Если эта подвкладка активна, перезагружаем основную таблицу
+            // Если эта подвкладка активна, синхронизируем глобальную ссылку и перезагружаем основную таблицу
             if (window.activeSubtab && window.activeSubtab.id === this.id) {
+                window.activeSubtab = this;
                 if (typeof loadPage === 'function') {
                     loadPage();
                 }
@@ -703,19 +748,29 @@ class Subtab {
             });
             
             if (response.ok) {
-                // Обновляем данные подвкладки
-                await this.refreshProductsData();
-                
-                // Перезагружаем модальное окно
-                await this.loadProductsForModal(modal);
-                
-                // Если эта подвкладка активна, обновляем таблицу товаров
-                if (this.parentTab.activeSubtab === this) {
-                    window.loadPage && window.loadPage();
-                }
-            } else {
-                throw new Error('Ошибка сервера');
+            // Обновляем данные подвкладки
+            await this.refreshSubtabData();
+            
+            // Если эта подвкладка активна, синхронизируем глобальную ссылку
+            if (window.activeSubtab && window.activeSubtab.id === this.id) {
+                console.log('Синхронизируем активную подвкладку после обычного добавления товаров...');
+                window.activeSubtab = this;
             }
+            
+            // Перезагружаем модальное окно
+            await this.loadProductsForModal(modal);
+            
+            // Если эта подвкладка активна, обновляем таблицу товаров
+            if (window.activeSubtab && window.activeSubtab.id === this.id) {
+                console.log('Обновляем основную таблицу после обычного добавления товаров');
+                // Небольшая задержка для синхронизации с сервером
+                setTimeout(() => {
+                    window.loadPage && window.loadPage();
+                }, 100);
+            }
+        } else {
+            throw new Error('Ошибка сервера');
+        }
         } catch (error) {
             console.error('Ошибка добавления товаров:', error);
             alert('Не удалось добавить товары в подвкладку');
@@ -723,19 +778,136 @@ class Subtab {
     }
 
     /**
-     * Обновляет данные товаров подвкладки
+     * Добавляет товары в подвкладку по массиву ID
      */
-    async refreshProductsData() {
-        try {
-            const response = await fetch(`/api/v1/tabs/subtabs/${this.id}`);
-            if (response.ok) {
-                const data = await response.json();
-                this.products = data.products || [];
+    async addBulkProductsByIds(modal) {
+        const textarea = modal.querySelector('#bulkProductIds');
+        const resultDiv = modal.querySelector('#bulkAddResult');
+        const bulkAddButton = modal.querySelector('#addBulkProducts');
+        
+        const inputText = textarea.value.trim();
+        if (!inputText) {
+            resultDiv.innerHTML = '<div class="alert alert-warning">Введите ID товаров</div>';
+            return;
+        }
+
+        // Парсинг ID из текста (поддерживаем запятые, пробелы, переносы строк)
+        const rawIds = inputText.split(/[\s,\n]+/).filter(id => id.trim() !== '');
+        const productIds = [];
+        const invalidIds = [];
+        
+        // Валидация ID
+        rawIds.forEach(id => {
+            const trimmedId = id.trim();
+            const numId = parseInt(trimmedId);
+            if (!isNaN(numId) && numId > 0) {
+                productIds.push(numId);
+            } else {
+                invalidIds.push(trimmedId);
             }
+        });
+        
+        if (productIds.length === 0) {
+            resultDiv.innerHTML = '<div class="alert alert-danger">Не найдено валидных ID товаров</div>';
+            return;
+        }
+        
+        if (invalidIds.length > 0) {
+            resultDiv.innerHTML = `<div class="alert alert-warning">Некорректные ID: ${invalidIds.join(', ')}</div>`;
+        }
+        
+        // Убираем дубликаты
+        const uniqueIds = [...new Set(productIds)];
+        
+        try {
+            // Блокируем кнопку и показываем процесс
+            bulkAddButton.disabled = true;
+            bulkAddButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Добавляем...';
+            
+            resultDiv.innerHTML = `<div class="alert alert-info">Добавляем ${uniqueIds.length} товаров...</div>`;
+            
+            // Отправляем запрос на добавление
+            const response = await fetch(`/api/v1/tabs/subtabs/${this.id}/products`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    product_remonline_ids: uniqueIds
+                })
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log('Результат массового добавления:', result);
+                
+                // Очищаем поле ввода
+                textarea.value = '';
+                
+                // Обновляем данные подвкладки
+                console.log('Обновляем данные подвкладки...');
+                await this.refreshSubtabData();
+                
+                // Если эта подвкладка активна, синхронизируем глобальную ссылку
+                if (window.activeSubtab && window.activeSubtab.id === this.id) {
+                    console.log('Синхронизируем активную подвкладку с обновленными данными...');
+                    window.activeSubtab = this;
+                    console.log(`📊 Обновленные ID товаров в подвкладке:`, this.getProductIds());
+                }
+                
+                // Перезагружаем модальное окно
+                await this.loadProductsForModal(modal);
+                
+                // Если эта подвкладка активна, обновляем таблицу товаров
+                console.log('Проверяем активную подвкладку:', {
+                    windowActiveSubtab: window.activeSubtab?.id,
+                    currentSubtabId: this.id,
+                    isActive: window.activeSubtab && window.activeSubtab.id === this.id
+                });
+                
+                if (window.activeSubtab && window.activeSubtab.id === this.id) {
+                    console.log('Обновляем основную таблицу товаров...');
+                    if (typeof window.loadPage === 'function') {
+                        // Небольшая задержка для синхронизации с сервером
+                        setTimeout(() => {
+                            window.loadPage();
+                        }, 100);
+                    } else {
+                        console.error('window.loadPage не является функцией');
+                    }
+                }
+                
+                const addedCount = result.length;
+                const skippedCount = uniqueIds.length - addedCount;
+                
+                let message = `<div class="alert alert-success">Добавлено товаров: ${addedCount}`;
+                if (skippedCount > 0) {
+                    message += `<br>Пропущено (уже были в листе): ${skippedCount}`;
+                }
+                message += '</div>';
+                
+                resultDiv.innerHTML = message;
+                
+                // Автоматически скрываем сообщение через 3 секунды
+                setTimeout(() => {
+                    resultDiv.innerHTML = '';
+                }, 3000);
+                
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || 'Ошибка сервера');
+            }
+            
         } catch (error) {
-            console.error('Ошибка обновления данных подвкладки:', error);
+            console.error('Ошибка массового добавления товаров:', error);
+            resultDiv.innerHTML = `<div class="alert alert-danger">Ошибка: ${error.message}</div>`;
+        } finally {
+            // Восстанавливаем кнопку
+            bulkAddButton.disabled = false;
+            bulkAddButton.innerHTML = 'Добавить по ID';
         }
     }
+
 
     /**
      * Начинает переименование подвкладки
@@ -822,7 +994,7 @@ class Subtab {
                     this.parentTab.renderSubtabs();
                     
                     // Если это была активная подвкладка, выбираем другую
-                    if (this.parentTab.activeSubtab === this) {
+                    if (window.activeSubtab && window.activeSubtab.id === this.id) {
                         const newActive = this.parentTab.subtabs.find(s => s.isActive);
                         if (newActive) {
                             this.parentTab.selectSubtab(newActive);
@@ -842,9 +1014,17 @@ class Subtab {
      * Получает список ID товаров в подвкладке
      */
     getProductIds() {
-        return this.products
+        const productIds = this.products
             .filter(p => p.is_active)
             .map(p => p.product_remonline_id);
+        
+        console.log('getProductIds() для подвкладки', this.id, ':', {
+            allProducts: this.products.length,
+            activeProducts: this.products.filter(p => p.is_active).length,
+            productIds: productIds
+        });
+        
+        return productIds;
     }
 
     /**
@@ -852,15 +1032,29 @@ class Subtab {
      */
     async refreshSubtabData() {
         try {
+            console.log(`Обновляем данные подвкладки ${this.id}...`);
             const response = await fetch(`/api/v1/tabs/subtabs/${this.id}/products`);
             if (!response.ok) {
                 throw new Error('Ошибка загрузки данных подвкладки');
             }
             
             const data = await response.json();
+            const oldProductIds = this.getProductIds();
             this.products = data || [];
+            const newProductIds = this.getProductIds();
             
-            console.log('Данные подвкладки обновлены');
+            // Если это активная подвкладка, обновляем глобальную ссылку
+            if (window.activeSubtab && window.activeSubtab.id === this.id) {
+                window.activeSubtab = this;
+            }
+            
+            console.log('Данные подвкладки обновлены:', {
+                subtabId: this.id,
+                productsCount: this.products.length,
+                oldProductIds: oldProductIds,
+                newProductIds: newProductIds,
+                hasChanges: JSON.stringify(oldProductIds) !== JSON.stringify(newProductIds)
+            });
         } catch (error) {
             console.error('Ошибка обновления данных подвкладки:', error);
         }
@@ -1258,10 +1452,11 @@ window.removeProductFromSubtab = async function(subtabId, productRemonlineId) {
                 if (tab) {
                     const subtab = tab.subtabs.find(s => s.id === subtabId);
                     if (subtab) {
-                        await subtab.refreshProductsData();
+                        await subtab.refreshSubtabData();
                         
-                        // Если эта подвкладка активна, обновляем таблицу товаров
-                        if (tab.activeSubtab === subtab) {
+                        // Если эта подвкладка активна, синхронизируем глобальную ссылку и обновляем таблицу товаров
+                        if (window.activeSubtab && window.activeSubtab.id === subtab.id) {
+                            window.activeSubtab = subtab;
                             window.loadPage && window.loadPage();
                         }
                     }

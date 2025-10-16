@@ -21,9 +21,8 @@ PORT=8000
 ```bash
 # Через uv
 uv run main.py
+sqlite3 remonline.db < migrations/002_add_main_tab_type.sql
 
-# Или через скрипт
-python run.py
 ```
 
 Приложение будет доступно на `http://localhost:8000`

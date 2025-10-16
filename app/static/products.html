@@ -40,9 +40,22 @@
                 <!-- Склады будут загружены динамически из API -->
               </select>
             </div>
-            <div class="col-12 col-md-6 d-flex gap-2">
+            <div class="col-12 col-md-6 d-flex gap-2 align-items-center">
               <button id="applyFilters" class="btn btn-sm btn-primary">Применить</button>
               <button id="resetFilters" class="btn btn-sm btn-outline-secondary">Сброс</button>
+              
+              <!-- Главные вкладки Apple и Android -->
+              <div class="main-tabs d-flex gap-2 ms-3">
+                <button id="appleTabBtn" class="btn btn-outline-primary main-tab-btn" data-main-type="apple">
+                  🍎 Apple
+                </button>
+                <button id="androidTabBtn" class="btn btn-outline-success main-tab-btn" data-main-type="android">
+                  🤖 Android
+                </button>
+                <button id="allTabBtn" class="btn btn-outline-secondary main-tab-btn active" data-main-type="all">
+                  Все
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -101,17 +114,38 @@
       <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
           <div class="modal-header py-2">
-            <h6 class="modal-title mb-0">Отображение столбцов</h6>
+            <h6 class="modal-title mb-0">Настройки таблицы</h6>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body">
-            <div class="mb-2">
-              <strong>Основные</strong>
-              <div id="columnsStaticList" class="d-grid gap-1 mt-2"></div>
-            </div>
-            <div class="mb-2">
-              <strong>Склады</strong>
-              <div id="columnsWarehousesList" class="d-grid gap-1 mt-2"></div>
+            <!-- Вкладки в настройках -->
+            <ul class="nav nav-pills nav-fill mb-3" id="settingsTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="columns-tab" data-bs-toggle="pill" data-bs-target="#columns" type="button" role="tab">Столбцы</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tabs-tab" data-bs-toggle="pill" data-bs-target="#tabs" type="button" role="tab">Вкладки</button>
+              </li>
+            </ul>
+
+            <div class="tab-content" id="settingsTabContent">
+              <!-- Настройки столбцов -->
+              <div class="tab-pane fade show active" id="columns" role="tabpanel">
+                <div class="mb-2">
+                  <strong>Основные</strong>
+                  <div id="columnsStaticList" class="d-grid gap-1 mt-2"></div>
+                </div>
+                <div class="mb-2">
+                  <strong>Склады</strong>
+                  <div id="columnsWarehousesList" class="d-grid gap-1 mt-2"></div>
+                </div>
+              </div>
+
+              <!-- Настройки вкладок -->
+              <div class="tab-pane fade" id="tabs" role="tabpanel">
+                <div id="tabsSettingsList" class="d-grid gap-2"></div>
+                <button id="addNewTabBtn" class="btn btn-sm btn-outline-primary mt-3">+ Добавить вкладку</button>
+              </div>
             </div>
           </div>
           <div class="modal-footer py-2">

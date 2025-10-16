@@ -632,37 +632,43 @@ function renderTable(productsWithStocks) {
   
   for (const p of productsWithStocks) {
     const tr = document.createElement('tr');
+    // Добавляем класс для отсутствующих товаров
+    if (p.is_missing) {
+      tr.classList.add('table-warning');
+    }
     tr.innerHTML = `
       <td class="photos-col" data-col="photos">
-        <div class="thumbs">${(p.images || []).slice(0,3).map(u => `<img src="${escapeAttr(u.thumbnail || u)}" data-full="${escapeAttr(u.full || u)}" class="thumb" loading="lazy" alt="">`).join('')}</div>
+        <div class="thumbs">${p.is_missing ? '<div class="text-muted small">Нет изображений</div>' : (p.images || []).slice(0,3).map(u => `<img src="${escapeAttr(u.thumbnail || u)}" data-full="${escapeAttr(u.full || u)}" class="thumb" loading="lazy" alt="">`).join('')}</div>
       </td>
       <td class="name-col" data-col="name">
         <div class="product-menu-wrapper">
           <div class="name-wrap" title="${escapeHtml(p.original_name || p.name)}">
-            ${escapeHtml(p.name)}
+            ${escapeHtml(p.display_name || p.name)}
             ${p.is_custom_name ? '<small class="text-success ms-1" title="Кастомное название">✓</small>' : ''}
+            ${p.is_missing ? '<span class="badge bg-warning text-dark ms-1">Не в БД</span>' : ''}
           </div>
           <div class="sku">RemID: ${p.remonline_id ?? '-'} · SKU: ${escapeHtml(p.sku || '-')}</div>
           <div class="sku">Обновлено: ${formatDate(p.updated_at)}</div>
-          <div class="product-menu" data-product-id="${p.id}">
+          ${p.is_missing ? '<div class="text-warning small">⚠️ Товар отсутствует в локальной базе данных</div>' : ''}
+          <div class="product-menu" data-product-id="${p.id}" data-product-remonline-id="${p.remonline_id}" data-is-missing="${p.is_missing || false}">
             <div class="list-group list-group-flush">
-              <div class="list-group-item" data-action="refresh">Обновить данные товара</div>
-              <div class="list-group-item" data-action="open-api" data-url="/api/v1/products/${p.id}">Открыть в API</div>
+              <div class="list-group-item" data-action="refresh">${p.is_missing ? 'Загрузить товар из Remonline' : 'Обновить данные товара'}</div>
+              ${!p.is_missing ? `<div class="list-group-item" data-action="open-api" data-url="/api/v1/products/${p.id}">Открыть в API</div>` : ''}
             </div>
           </div>
         </div>
       </td>
       <td class="category-col" data-col="category">
-        ${escapeHtml(p.category || '-')}
+        ${escapeHtml(p.display_category || p.category || '-')}
         ${p.is_custom_category ? '<small class="text-success ms-1" title="Кастомная категория">✓</small>' : ''}
       </td>
-      <td class="price-base-col" data-col="price-base">${p.price != null ? p.price : '-'}</td>
-      <td class="price-col" data-price="48388" data-col="price-48388">${formatPrice(p.prices['48388'])}</td>
-      <td class="price-col" data-price="97150" data-col="price-97150">${formatPrice(p.prices['97150'])}</td>
-      <td class="price-col" data-price="377836" data-col="price-377836">${formatPrice(p.prices['377836'])}</td>
-      <td class="price-col" data-price="555169" data-col="price-555169">${formatPrice(p.prices['555169'])}</td>
-      <td class="total-col" data-col="total">${formatPrice(p.totalStock)}</td>
-      ${warehousesToShow.map(w => `<td class="warehouse-col" data-wh="${w.remonline_id}" data-col="wh-${w.remonline_id}">${p.stocks[w.remonline_id] ?? 0}</td>`).join('')}
+      <td class="price-base-col" data-col="price-base">${p.is_missing ? '-' : (p.price != null ? p.price : '-')}</td>
+      <td class="price-col" data-price="48388" data-col="price-48388">${p.is_missing ? '-' : formatPrice(p.prices['48388'])}</td>
+      <td class="price-col" data-price="97150" data-col="price-97150">${p.is_missing ? '-' : formatPrice(p.prices['97150'])}</td>
+      <td class="price-col" data-price="377836" data-col="price-377836">${p.is_missing ? '-' : formatPrice(p.prices['377836'])}</td>
+      <td class="price-col" data-price="555169" data-col="price-555169">${p.is_missing ? '-' : formatPrice(p.prices['555169'])}</td>
+      <td class="total-col" data-col="total">${p.is_missing ? '-' : formatPrice(p.totalStock)}</td>
+      ${warehousesToShow.map(w => `<td class="warehouse-col" data-wh="${w.remonline_id}" data-col="wh-${w.remonline_id}">${p.is_missing ? '-' : (p.stocks[w.remonline_id] ?? 0)}</td>`).join('')}
     `;
     fragment.appendChild(tr);
   }
@@ -775,14 +781,50 @@ async function loadPage(useFilters = false) {
   const skip = (state.page - 1) * state.size;
   const name = encodeURIComponent(document.getElementById('searchInput').value.trim());
   
+  // Если активна подвкладка, загружаем больше товаров чтобы найти все нужные
+  const isSubtabActive = window.activeSubtab && window.activeSubtab.getProductIds().length > 0;
+  const loadLimit = isSubtabActive ? 5000 : state.size; // Увеличиваем лимит для подвкладок
+  
   let url;
-  if (useFilters) {
-    // Используем новый endpoint с фильтрами
+  if (useFilters || isSubtabActive) {
+    // Используем новый endpoint с фильтрами (или принудительно для подвкладок)
     const params = new URLSearchParams();
-    params.append('skip', skip);
-    params.append('limit', state.size);
+    params.append('skip', isSubtabActive ? 0 : skip);
+    params.append('limit', isSubtabActive ? 10000 : loadLimit); // Увеличиваем лимит для подвкладок
     
     if (name) params.append('name', name);
+    
+    // Для подвкладок добавляем конкретные remonline_ids товаров
+    if (isSubtabActive) {
+      const subtabProductIds = window.activeSubtab.getProductIds();
+      if (subtabProductIds.length > 0) {
+        // Если есть поиск, фильтруем ID товаров подвкладки по поисковому запросу
+        let filteredIds = subtabProductIds;
+        if (name) {
+          // Проверяем является ли поиск числом (remonline_id)
+          const searchAsNumber = parseInt(name);
+          if (!isNaN(searchAsNumber) && name && searchAsNumber.toString() === name.trim()) {
+            // Поиск по конкретному remonline_id - оставляем только его если он есть в подвкладке
+            filteredIds = subtabProductIds.includes(searchAsNumber) ? [searchAsNumber] : [];
+            console.log(`Поиск по remonline_id ${searchAsNumber} в подвкладке:`, filteredIds.length > 0 ? 'найден' : 'не найден');
+            // Убираем name параметр так как фильтруем по remonline_ids
+            params.delete('name');
+          } else {
+            // Текстовый поиск - оставляем все ID подвкладки, фильтрация будет на сервере по name + remonline_ids
+            console.log('Текстовый поиск в подвкладке по запросу:', name);
+          }
+        }
+        
+        if (filteredIds.length > 0) {
+          params.append('remonline_ids', filteredIds.join(','));
+          console.log('Загружаем товары по ID из подвкладки:', filteredIds);
+        } else if (name && !isNaN(parseInt(name))) {
+          // Если искали по ID но он не найден в подвкладке - не загружаем товары
+          console.log('Товар с ID', name, 'не найден в текущей подвкладке');
+          params.append('remonline_ids', '0'); // Передаем несуществующий ID чтобы получить пустой результат
+        }
+      }
+    }
     
     const f = state.filters;
     if (f.categories.length > 0) {
@@ -805,12 +847,22 @@ async function loadPage(useFilters = false) {
       params.append('sort_order', sortOrder);
     }
     
+    // Для подвкладок включаем все товары (активные и неактивные)
+    if (!isSubtabActive) {
+      params.append('is_active', 'true');
+    }
+    
     url = `${API_BASE}/products/filtered?${params.toString()}`;
   } else {
     // Используем старый endpoint без фильтров
     const nameQuery = name ? `&name=${name}` : '';
-    url = `${API_BASE}/products/?skip=${skip}&limit=${state.size}${nameQuery}`;
+    const currentSkip = skip;
+    const activeFilter = '&is_active=true';
+    url = `${API_BASE}/products/?skip=${currentSkip}&limit=${loadLimit}${nameQuery}${activeFilter}`;
   }
+  
+  console.log('Загружаем товары с URL:', url);
+  console.log('Активна подвкладка:', !!window.activeSubtab, 'Загружаем все товары:', isSubtabActive);
   
   if (state.isLoading) return;
   state.isLoading = true;
@@ -819,10 +871,53 @@ async function loadPage(useFilters = false) {
     const productsResp = await fetchJson(url);
     let products = (productsResp?.data) || [];
     
+    console.log('Получено товаров с сервера:', products.length);
+    console.log('ID товаров с сервера:', products.map(p => p.remonline_id));
+    
+    // Проверяем есть ли конкретный товар который недавно обновляли
+    if (window.lastUpdatedProductId) {
+      const isInResponse = products.some(p => p.remonline_id === window.lastUpdatedProductId);
+      console.log(`🔍 Товар ${window.lastUpdatedProductId} в ответе сервера:`, isInResponse);
+      if (isInResponse) {
+        console.log(`✅ Товар ${window.lastUpdatedProductId} найден в ответе!`);
+        // Сбрасываем флаг
+        window.lastUpdatedProductId = null;
+      }
+    }
+    
+    // Специальная проверка для товара 38089182
+    const hasProduct38089182 = products.some(p => p.remonline_id === 38089182);
+    console.log(`🔍 Товар 38089182 в ответе сервера:`, hasProduct38089182);
+    if (hasProduct38089182) {
+      const product = products.find(p => p.remonline_id === 38089182);
+      console.log(`📋 Данные товара 38089182 в ответе:`, {
+        id: product.id,
+        name: product.name,
+        is_active: product.is_active,
+        remonline_id: product.remonline_id
+      });
+    }
+    
     // Фильтрация и обогащение товаров из активной подвкладки
     if (window.activeSubtab) {
       const subtabProductIds = window.activeSubtab.getProductIds();
       if (subtabProductIds && subtabProductIds.length > 0) {
+        console.log('Товары в подвкладке:', subtabProductIds);
+        
+        // Проверяем какие товары из подвкладки есть в ответе сервера
+        const availableProductIds = products.map(p => p.remonline_id);
+        const missingProductIds = subtabProductIds.filter(id => !availableProductIds.includes(id));
+        
+        // Если есть поиск по remonline_id и товар не найден, это нормально
+        const searchAsNumber = name ? parseInt(name) : NaN;
+        const isSearchById = !isNaN(searchAsNumber) && name && searchAsNumber.toString() === name.trim();
+        
+        if (missingProductIds.length > 0 && !isSearchById) {
+          console.warn('Товары из подвкладки отсутствуют в ответе сервера:', missingProductIds);
+        } else if (isSearchById && products.length === 0) {
+          console.log(`Товар с ID ${searchAsNumber} не найден в подвкладке или отсутствует в БД`);
+        }
+        
         // Получаем данные товаров из подвкладки с кастомными названиями
         const subtabProducts = window.activeSubtab.products || [];
         const subtabProductsMap = new Map();
@@ -835,9 +930,18 @@ async function loadPage(useFilters = false) {
           });
         });
         
-        products = products.filter(product => 
-          subtabProductIds.includes(product.remonline_id)
-        ).map(product => {
+        // При использовании remonline_ids фильтра товары уже отфильтрованы сервером
+        const filteredProducts = products;
+        
+        console.log('Товары после серверной фильтрации по подвкладке:', filteredProducts.length);
+        console.log('ID товаров после серверной фильтрации:', filteredProducts.map(p => p.remonline_id));
+        
+        // Специальная проверка для товара 38089182
+        const hasProduct38089182InFiltered = filteredProducts.some(p => p.remonline_id === 38089182);
+        console.log(`🎯 Товар 38089182 в серверном ответе:`, hasProduct38089182InFiltered);
+        
+        // Создаем список товаров из подвкладки с кастомными данными
+        const enrichedProducts = filteredProducts.map(product => {
           // Обогащаем товар кастомными данными из подвкладки
           const subtabData = subtabProductsMap.get(product.remonline_id);
           if (subtabData) {
@@ -850,7 +954,6 @@ async function loadPage(useFilters = false) {
               subtab_order_index: subtabData.order_index
             };
           }
-          // Этот товар не должен попадать сюда, так как он уже отфильтрован
           return {
             ...product,
             display_name: product.name,
@@ -860,6 +963,51 @@ async function loadPage(useFilters = false) {
             subtab_order_index: 999999 // Большое число для товаров без порядка
           };
         });
+        
+        // Добавляем отсутствующие товары из подвкладки как заглушки
+        const foundProductIds = filteredProducts.map(p => p.remonline_id);
+        
+        // Создаем заглушки только если не было поиска по ID
+        let missingProducts = [];
+        if (!isSearchById) {
+          missingProducts = subtabProducts
+            .filter(sp => !foundProductIds.includes(sp.product_remonline_id))
+            .map(sp => {
+              // При использовании remonline_ids API заглушки должны создаваться только если товар действительно не существует в БД
+              console.log('Создаем заглушку для отсутствующего в БД товара:', sp.product_remonline_id);
+              return {
+                id: `missing_${sp.product_remonline_id}`, // Уникальный ID для заглушки
+                remonline_id: sp.product_remonline_id,
+                name: sp.custom_name || `Товар ID ${sp.product_remonline_id}`,
+                display_name: sp.custom_name || `Товар ID ${sp.product_remonline_id}`,
+                category: sp.custom_category || 'Не найден в базе',
+                display_category: sp.custom_category || 'Не найден в базе',
+                sku: '-',
+                price: null,
+                images: [],
+                prices: {},
+                stocks: {},
+                totalStock: 0,
+                updated_at: sp.updated_at,
+                is_missing: true, // Помечаем как отсутствующий товар
+                is_custom_name: !!sp.custom_name,
+                is_custom_category: !!sp.custom_category,
+                subtab_order_index: sp.order_index !== undefined ? sp.order_index : 0
+              };
+            });
+        }
+        
+        if (missingProducts.length > 0) {
+          console.log('Статистика товаров:', {
+            foundInDB: foundProductIds.length,
+            totalInSubtab: subtabProductIds.length,
+            missingFromDB: missingProducts.length,
+            missingProductIds: missingProducts.map(p => p.remonline_id)
+          });
+        }
+        
+        // Объединяем найденные и отсутствующие товары
+        products = [...enrichedProducts, ...missingProducts];
         
         // Сортируем товары по порядку из подвкладки
         products.sort((a, b) => {
@@ -872,7 +1020,13 @@ async function loadPage(useFilters = false) {
 
     // Ограничение конкурентности при загрузке остатков
     const concurrency = 6;
-    const queue = products.map(p => async () => ({ product: p, stocks: await loadStocksForProduct(p.id) }));
+    const queue = products.map(p => async () => {
+      // Для отсутствующих товаров не загружаем остатки
+      if (p.is_missing) {
+        return { product: p, stocks: {} };
+      }
+      return { product: p, stocks: await loadStocksForProduct(p.id) };
+    });
     const results = await runLimited(queue, concurrency);
 
     const productsWithStocks = results.map(({ product, stocks }) => {
@@ -893,6 +1047,7 @@ async function loadPage(useFilters = false) {
         original_category: product.category,
         is_custom_name: product.is_custom_name || false,
         is_custom_category: product.is_custom_category || false,
+        is_missing: product.is_missing || false, // Передаем флаг отсутствующего товара
         price: product.price,
         updated_at: product.updated_at,
         stocks: stocks,
@@ -1208,7 +1363,8 @@ function attachProductMenus() {
     }
     nameWrap.addEventListener('mouseenter', show);
     nameWrap.addEventListener('mouseleave', scheduleHide);
-    menu.addEventListener('mouseenter', () => { clearTimeout(hideTimer); });
+
+    menu.addEventListener('mouseenter', show);
     menu.addEventListener('mouseleave', scheduleHide);
 
     // Клики по пунктам
@@ -1216,15 +1372,43 @@ function attachProductMenus() {
       const item = e.target.closest('.list-group-item');
       if (!item) return;
       const action = item.getAttribute('data-action');
-      const productId = Number(menu.getAttribute('data-product-id'));
+      const productId = menu.getAttribute('data-product-id');
+      const productRemonlineId = menu.getAttribute('data-product-remonline-id');
+      const isMissing = menu.getAttribute('data-is-missing') === 'true';
+      
       if (action === 'refresh') {
         try {
           item.classList.add('disabled');
           item.classList.add('btn-progress');
-          await refreshProductWithProgress(productId, item);
-          await loadPage();
+          
+          if (isMissing) {
+            // Для отсутствующих товаров пытаемся найти их по Remonline ID
+            await refreshMissingProduct(productRemonlineId, item);
+            
+            // Сначала обновляем данные активной подвкладки
+            if (window.activeSubtab) {
+              console.log(`🔄 Обновляем данные подвкладки ${window.activeSubtab.id}...`);
+              await window.activeSubtab.refreshSubtabData();
+              console.log(`📊 Новые ID товаров в подвкладке:`, window.activeSubtab.getProductIds());
+            }
+          } else {
+            // Обычное обновление товара
+            await refreshProductWithProgress(Number(productId), item);
+            
+            // Также обновляем данные подвкладки, если она активна
+            if (window.activeSubtab) {
+              console.log(`🔄 Обновляем данные подвкладки ${window.activeSubtab.id}...`);
+              await window.activeSubtab.refreshSubtabData();
+              console.log(`📊 Новые ID товаров в подвкладке:`, window.activeSubtab.getProductIds());
+            }
+          }
+          
+          // Принудительная загрузка страницы с очисткой кеша
+          console.log(`🔄 Принудительно перезагружаем таблицу...`);
+          await loadPage(false);
         } catch (err) {
-          alert('Не удалось обновить товар');
+          console.error('Ошибка обновления товара:', err);
+          alert(isMissing ? 'Не удалось загрузить товар из Remonline' : 'Не удалось обновить товар');
         } finally {
           item.classList.remove('disabled');
           item.classList.remove('btn-progress');
@@ -1278,6 +1462,113 @@ async function refreshProductWithProgress(productId, buttonEl) {
   }
   // По завершении ETA убираем
   buttonEl.removeAttribute('data-eta');
+}
+
+async function refreshMissingProduct(remonlineId, buttonEl) {
+  try {
+    console.log(`🔍 Начинаем поиск товара с Remonline ID: ${remonlineId}`);
+    console.log(`🔗 URL поиска: ${API_BASE}/products/remonline/${remonlineId}`);
+    buttonEl.textContent = 'Поиск товара в БД...';
+    
+    // Пытаемся найти товар в локальной БД по Remonline ID
+    let response = await fetch(`${API_BASE}/products/remonline/${remonlineId}`);
+    console.log(`📦 Ответ поиска в БД: status=${response.status}`);
+    
+    if (response.ok) {
+      // Товар найден в БД - обновляем его
+      const data = await response.json();
+      const product = data.data;
+      
+      console.log(`✅ Товар найден в БД с ID: ${product.id}, обновляем...`);
+      buttonEl.textContent = 'Обновление товара...';
+      await refreshProductWithProgress(product.id, buttonEl);
+      
+      console.log('✅ Товар успешно обновлен');
+      buttonEl.textContent = 'Товар загружен!';
+      
+      // Помечаем товар для отслеживания в следующей загрузке
+      window.lastUpdatedProductId = parseInt(remonlineId);
+      
+      // Дополнительно загружаем товар напрямую для проверки
+      console.log(`🔍 Проверяем товар после обновления...`);
+      const checkResponse = await fetch(`${API_BASE}/products/${product.id}`);
+      if (checkResponse.ok) {
+        const checkData = await checkResponse.json();
+        console.log(`📋 Данные товара после обновления:`, checkData.data);
+        console.log(`🏃 Активен ли товар: ${checkData.data.is_active}`);
+        
+        // Если товар неактивен, активируем его
+        if (!checkData.data.is_active) {
+          console.log(`🔄 Товар неактивен, активируем...`);
+          buttonEl.textContent = 'Активация товара...';
+          
+          const activateResponse = await fetch(`${API_BASE}/products/${product.id}/activate`, {
+            method: 'PUT'
+          });
+          
+          if (activateResponse.ok) {
+            console.log(`✅ Товар успешно активирован`);
+            buttonEl.textContent = 'Товар активирован!';
+          } else {
+            console.log(`❌ Ошибка активации товара`);
+            buttonEl.textContent = 'Ошибка активации';
+          }
+        }
+      }
+      
+    } else if (response.status === 404) {
+      // Товар не найден в БД - загружаем из Remonline
+      console.log(`❌ Товар с Remonline ID ${remonlineId} не найден в БД, загружаем из Remonline...`);
+      console.log(`🔗 URL создания: ${API_BASE}/products/create-from-remonline/${remonlineId}`);
+      buttonEl.textContent = 'Загрузка из Remonline...';
+      
+      const createResponse = await fetch(`${API_BASE}/products/create-from-remonline/${remonlineId}`, {
+        method: 'POST'
+      });
+      
+      console.log(`📦 Ответ создания товара: status=${createResponse.status}`);
+      
+      if (createResponse.ok) {
+        const createData = await createResponse.json();
+        const newProduct = createData.data;
+        
+        console.log(`✅ Товар создан в БД:`, newProduct);
+        console.log(`🔄 Товар создан в БД с ID: ${newProduct.id}, обновляем остатки...`);
+        buttonEl.textContent = 'Обновление остатков...';
+        
+        // Обновляем товар для получения остатков
+        await refreshProductWithProgress(newProduct.id, buttonEl);
+        
+        console.log('✅ Товар успешно загружен и обновлен');
+        buttonEl.textContent = 'Товар загружен!';
+        
+        // Помечаем товар для отслеживания в следующей загрузке
+        window.lastUpdatedProductId = parseInt(remonlineId);
+        
+        // Дополнительно проверяем созданный товар
+        console.log(`🔍 Проверяем созданный товар...`);
+        const checkResponse = await fetch(`${API_BASE}/products/${newProduct.id}`);
+        if (checkResponse.ok) {
+          const checkData = await checkResponse.json();
+          console.log(`📋 Данные созданного товара:`, checkData.data);
+          console.log(`🏃 Активен ли созданный товар: ${checkData.data.is_active}`);
+        }
+      } else {
+        const errorData = await createResponse.json().catch(() => ({}));
+        console.error('❌ Ошибка создания товара:', errorData);
+        const errorMessage = errorData.detail || 'Неизвестная ошибка при загрузке из Remonline';
+        throw new Error(errorMessage);
+      }
+    } else {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('❌ Ошибка поиска товара:', errorData);
+      throw new Error('Ошибка при поиске товара в базе данных');
+    }
+  } catch (error) {
+    console.error('❌ Ошибка обновления отсутствующего товара:', error);
+    buttonEl.textContent = 'Ошибка загрузки';
+    throw error;
+  }
 }
 
 async function loadStocksForProduct(productId) {
@@ -1467,6 +1758,10 @@ function updateAllSortArrows() {
 // Глобальная переменная для менеджера вкладок
 let tabsManager = null;
 
+// Состояние активной главной вкладки
+let activeMainTabType = 'all'; // 'apple', 'android', 'all'
+window.activeMainTabType = activeMainTabType;
+
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
   // Применяем сохраненный порядок столбцов
@@ -1475,8 +1770,17 @@ document.addEventListener('DOMContentLoaded', function() {
   // Инициализируем drag and drop
   initDragAndDrop();
   
+  // Инициализируем систему главных вкладок
+  initMainTabsSystem();
+  
   // Инициализируем систему вкладок
   initTabsSystem();
+  
+  // Инициализируем настройки вкладок
+  initTabsSettings();
+  
+  // Дополнительно инициализируем при открытии модального окна
+  initColumnsModal();
 });
 
 /**
@@ -1524,5 +1828,282 @@ function onActiveSubtabChanged(subtab) {
   
   // Обновляем таблицу товаров
   loadPage();
+}
+
+/**
+ * Инициализирует систему главных вкладок Apple/Android
+ */
+function initMainTabsSystem() {
+  const appleBtn = document.getElementById('appleTabBtn');
+  const androidBtn = document.getElementById('androidTabBtn');
+  const allBtn = document.getElementById('allTabBtn');
+
+  if (!appleBtn || !androidBtn || !allBtn) {
+    console.error('Кнопки главных вкладок не найдены');
+    return;
+  }
+
+  // Обработчики кликов
+  appleBtn.addEventListener('click', () => setActiveMainTab('apple'));
+  androidBtn.addEventListener('click', () => setActiveMainTab('android'));
+  allBtn.addEventListener('click', () => setActiveMainTab('all'));
+}
+
+/**
+ * Устанавливает активную главную вкладку
+ */
+function setActiveMainTab(type) {
+  activeMainTabType = type;
+  window.activeMainTabType = type; // Обновляем глобальную переменную
+  
+  // Обновляем UI кнопок
+  document.querySelectorAll('.main-tab-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  
+  const activeBtn = document.querySelector(`[data-main-type="${type}"]`);
+  if (activeBtn) {
+    activeBtn.classList.add('active');
+  }
+  
+  console.log('Активная главная вкладка:', type);
+  
+  // Перезагружаем систему обычных вкладок с учётом фильтра
+  if (tabsManager) {
+    tabsManager.loadTabs();
+  }
+}
+
+/**
+ * Инициализирует настройки вкладок в модальном окне
+ */
+async function initTabsSettings() {
+  console.log('Инициализация настроек вкладок...');
+  
+  // Загружаем вкладки для настроек при открытии вкладки "Вкладки"
+  const tabsTabButton = document.getElementById('tabs-tab');
+  if (tabsTabButton) {
+    console.log('Найдена кнопка вкладки настроек');
+    
+    // Используем правильное событие Bootstrap
+    tabsTabButton.addEventListener('click', async function() {
+      console.log('Клик по вкладке настроек вкладок');
+      setTimeout(async () => {
+        await loadTabsSettings();
+      }, 150); // Небольшая задержка для полного переключения вкладки
+    });
+
+    // Дополнительно слушаем правильное событие Bootstrap для переключения вкладок
+    tabsTabButton.addEventListener('shown.bs.tab', async function() {
+      console.log('Bootstrap событие shown.bs.tab - загружаем настройки вкладок');
+      await loadTabsSettings();
+    });
+  } else {
+    console.error('Кнопка вкладки настроек не найдена');
+  }
+
+  // Обработчик добавления новой вкладки
+  const addNewTabBtn = document.getElementById('addNewTabBtn');
+  if (addNewTabBtn) {
+    console.log('Найдена кнопка добавления вкладки');
+    addNewTabBtn.addEventListener('click', async function() {
+      console.log('Клик по кнопке добавления вкладки');
+      await addNewTab();
+    });
+  } else {
+    console.error('Кнопка добавления вкладки не найдена');
+  }
+}
+
+/**
+ * Загружает список вкладок в настройки
+ */
+async function loadTabsSettings() {
+  console.log('Загрузка настроек вкладок...');
+  
+  try {
+    const response = await fetch('/api/v1/tabs/?active_only=false&limit=1000');
+    console.log('Ответ от API:', response.status, response.statusText);
+    
+    if (!response.ok) {
+      throw new Error(`Ошибка загрузки вкладок: ${response.status} ${response.statusText}`);
+    }
+    
+    const tabs = await response.json();
+    console.log('Загружено вкладок:', tabs.length);
+    
+    const container = document.getElementById('tabsSettingsList');
+    if (!container) {
+      console.error('Контейнер tabsSettingsList не найден');
+      return;
+    }
+    
+    if (tabs.length === 0) {
+      container.innerHTML = '<div class="text-muted text-center">Нет вкладок для отображения</div>';
+      return;
+    }
+    
+    container.innerHTML = tabs.map(tab => `
+      <div class="tab-setting-item" data-tab-id="${tab.id}">
+        <div class="tab-name-display">${tab.name}</div>
+        <div class="d-flex gap-2 align-items-center">
+          <select class="form-select form-select-sm main-tab-select" data-tab-id="${tab.id}">
+            <option value="" ${!tab.main_tab_type ? 'selected' : ''}>Не назначено</option>
+            <option value="apple" ${tab.main_tab_type === 'apple' ? 'selected' : ''}>🍎 Apple</option>
+            <option value="android" ${tab.main_tab_type === 'android' ? 'selected' : ''}>🤖 Android</option>
+          </select>
+          <button class="btn btn-sm btn-outline-danger delete-tab-btn" data-tab-id="${tab.id}">🗑️</button>
+        </div>
+      </div>
+    `).join('');
+
+    // Добавляем обработчики изменений
+    const selects = container.querySelectorAll('.main-tab-select');
+    console.log('Найдено селектов главных вкладок:', selects.length);
+    
+    selects.forEach(select => {
+      select.addEventListener('change', async function() {
+        const tabId = this.dataset.tabId;
+        const mainTabType = this.value || null;
+        console.log(`Изменение главной вкладки для ID ${tabId} на ${mainTabType}`);
+        await updateTabMainType(tabId, mainTabType);
+      });
+    });
+
+    // Добавляем обработчики удаления
+    container.querySelectorAll('.delete-tab-btn').forEach(btn => {
+      btn.addEventListener('click', async function() {
+        const tabId = this.dataset.tabId;
+        if (confirm('Удалить эту вкладку?')) {
+          await deleteTab(tabId);
+          await loadTabsSettings();
+        }
+      });
+    });
+
+  } catch (error) {
+    console.error('Ошибка загрузки настроек вкладок:', error);
+  }
+}
+
+/**
+ * Обновляет тип главной вкладки
+ */
+async function updateTabMainType(tabId, mainTabType) {
+  console.log(`Отправка запроса на обновление вкладки ${tabId} с типом ${mainTabType}`);
+  
+  try {
+    const response = await fetch(`/api/v1/tabs/${tabId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        main_tab_type: mainTabType
+      })
+    });
+
+    console.log(`Ответ сервера: ${response.status} ${response.statusText}`);
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log('Результат обновления:', result);
+      console.log(`✅ Успешно обновлен тип главной вкладки для вкладки ${tabId}: ${mainTabType}`);
+      
+      // Перезагружаем систему вкладок если изменения касаются текущей главной вкладки
+      if (tabsManager) {
+        console.log('Перезагрузка системы вкладок...');
+        tabsManager.loadTabs();
+      }
+    } else {
+      const errorText = await response.text();
+      console.error(`Ошибка ${response.status}: ${errorText}`);
+    }
+  } catch (error) {
+    console.error('Ошибка обновления типа главной вкладки:', error);
+  }
+}
+
+/**
+ * Добавляет новую вкладку
+ */
+async function addNewTab() {
+  const name = prompt('Название новой вкладки:');
+  if (!name || !name.trim()) return;
+
+  try {
+    const response = await fetch('/api/v1/tabs/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: name.trim(),
+        is_active: true
+      })
+    });
+
+    if (response.ok) {
+      await loadTabsSettings();
+      
+      // Перезагружаем систему вкладок
+      if (tabsManager) {
+        tabsManager.loadTabs();
+      }
+    }
+  } catch (error) {
+    console.error('Ошибка создания вкладки:', error);
+  }
+}
+
+/**
+ * Удаляет вкладку
+ */
+async function deleteTab(tabId) {
+  try {
+    const response = await fetch(`/api/v1/tabs/${tabId}`, {
+      method: 'DELETE'
+    });
+
+    if (response.ok) {
+      // Перезагружаем систему вкладок
+      if (tabsManager) {
+        tabsManager.loadTabs();
+      }
+    }
+  } catch (error) {
+    console.error('Ошибка удаления вкладки:', error);
+  }
+}
+
+/**
+ * Инициализирует модальное окно настроек
+ */
+function initColumnsModal() {
+  const modal = document.getElementById('columnsModal');
+  if (!modal) {
+    console.error('Модальное окно настроек не найдено');
+    return;
+  }
+
+  modal.addEventListener('shown.bs.modal', function() {
+    console.log('Модальное окно настроек открыто');
+    
+    // Загружаем вкладки сразу при открытии модального окна
+    const tabsTab = document.getElementById('tabs');
+    if (tabsTab && tabsTab.classList.contains('active')) {
+      console.log('Вкладка "Вкладки" уже активна - загружаем настройки');
+      loadTabsSettings();
+    }
+  });
+
+  // Дополнительно слушаем переключение на вкладку "Вкладки"
+  const tabsTabButton = document.getElementById('tabs-tab');
+  if (tabsTabButton) {
+    tabsTabButton.addEventListener('shown.bs.tab', function() {
+      console.log('Переключение на вкладку "Вкладки" - загружаем настройки');
+      loadTabsSettings();
+    });
+  }
 }
 
