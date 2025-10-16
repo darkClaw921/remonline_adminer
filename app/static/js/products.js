@@ -1762,8 +1762,12 @@ let tabsManager = null;
 let activeMainTabType = 'all'; // 'apple', 'android', 'all'
 window.activeMainTabType = activeMainTabType;
 
-// Инициализация при загрузке страницы
-document.addEventListener('DOMContentLoaded', function() {
+/**
+ * Инициализация классической темы
+ */
+function initClassicTheme() {
+  console.log('Инициализация классической темы');
+  
   // Применяем сохраненный порядок столбцов
   applyColumnOrder();
   
@@ -1781,7 +1785,10 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Дополнительно инициализируем при открытии модального окна
   initColumnsModal();
-});
+}
+
+// Экспортируем функцию для использования в theme-manager
+window.initClassicTheme = initClassicTheme;
 
 /**
  * Инициализирует систему вкладок

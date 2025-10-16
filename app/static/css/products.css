@@ -145,3 +145,23 @@ select[multiple] { min-height: 100px; }
     margin-bottom: 4px;
 }
 
+/* Управление видимостью элементов в зависимости от темы */
+body[data-theme="classic"] .theme-tile-only {
+    display: none !important;
+}
+
+body[data-theme="tile"] .theme-classic-only {
+    display: none !important;
+}
+
+/* Кнопка переключения темы */
+#themeToggleBtn {
+    font-size: 1.2rem;
+    padding: 0.25rem 0.5rem;
+    transition: transform 0.2s ease;
+}
+
+#themeToggleBtn:hover {
+    transform: scale(1.1);
+}
+
