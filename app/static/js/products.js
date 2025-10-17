@@ -1768,6 +1768,53 @@ window.activeMainTabType = activeMainTabType;
 function initClassicTheme() {
   console.log('Инициализация классической темы');
   
+  // ПОЛНАЯ ОЧИСТКА: скрыть контейнер плиток и показать элементы классической темы
+  const tilesContainer = document.getElementById('tilesContainer');
+  if (tilesContainer) {
+    tilesContainer.style.display = 'none';
+  }
+  
+  // Удалить все кнопки навигации плиточной темы, если они остались
+  document.getElementById('backToTabsBtn')?.remove();
+  document.getElementById('backToSubtabsBtn')?.remove();
+  document.getElementById('backToCategoriesBtn')?.remove();
+  document.getElementById('manageSubtabProductsBtn')?.remove();
+  
+  // Показать элементы классической темы
+  const tableCard = document.querySelector('.card');
+  const tableContainer = document.getElementById('tableContainer');
+  const tabsContainer = document.getElementById('tabsContainer');
+  const pagination = document.querySelector('#pagination')?.parentElement;
+  const pageInfo = document.querySelector('#pageInfo')?.parentElement;
+  const columnsSettingsBtn = document.getElementById('columnsSettingsBtn')?.parentElement;
+  const mainTabsDiv = document.querySelector('.main-tabs');
+  
+  // Показать все элементы таблицы
+  if (tableCard) {
+    tableCard.style.display = '';
+  }
+  if (tableContainer) {
+    tableContainer.style.display = '';
+  }
+  if (tabsContainer) {
+    tabsContainer.style.display = '';
+  }
+  if (pagination) {
+    pagination.style.display = '';
+  }
+  if (pageInfo) {
+    pageInfo.style.display = '';
+  }
+  if (columnsSettingsBtn) {
+    columnsSettingsBtn.style.display = '';
+  }
+  if (mainTabsDiv) {
+    mainTabsDiv.style.display = '';
+  }
+  
+  // Сбросить активную подвкладку
+  window.activeSubtab = null;
+  
   // Применяем сохраненный порядок столбцов
   applyColumnOrder();
   
