@@ -439,6 +439,7 @@ async def add_products_to_subtab(subtab_id: int, request: dict, db: Session = De
                 product_remonline_id=product_id,
                 custom_name=None,
                 custom_category=None,
+                price_settings={},
                 order_index=order_index,
                 is_active=True
             )
@@ -506,6 +507,7 @@ async def add_single_product_to_subtab(subtab_id: int, product: SubTabProductCre
             product_remonline_id=product.product_remonline_id,
             custom_name=product.custom_name,
             custom_category=product.custom_category,
+            price_settings=product.price_settings or {},
             order_index=order_index,
             is_active=product.is_active
         )

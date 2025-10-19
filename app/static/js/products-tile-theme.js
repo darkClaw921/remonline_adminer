@@ -85,6 +85,11 @@ function initTileTheme() {
     tilesContainer.style.display = '';
   }
   
+  // Инициализируем настройку цен для работы в плиточной теме
+  if (typeof initPriceAdjustment === 'function') {
+    initPriceAdjustment();
+  }
+  
   // Показать категории
   showCategoryTiles();
 }

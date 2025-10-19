@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Скрипт для применения миграции производительности
+Скрипт для применения миграций
 """
 import sys
 from pathlib import Path
@@ -8,9 +8,13 @@ from loguru import logger
 from sqlalchemy import text
 from app.models.database import engine
 
-def apply_migration():
-    """Применить SQL миграцию для оптимизации производительности"""
-    migration_file = Path("migrations/003_performance_indexes.sql")
+def apply_migration(migration_path=None):
+    """Применить SQL миграцию"""
+    # Если путь не указан, используем последнюю миграцию
+    if migration_path is None:
+        migration_file = Path("migrations/003_performance_indexes.sql")
+    else:
+        migration_file = Path(migration_path)
     
     if not migration_file.exists():
         logger.error(f"Файл миграции не найден: {migration_file}")
@@ -48,6 +52,7 @@ def apply_migration():
         sys.exit(1)
 
 if __name__ == "__main__":
-    logger.info("Запуск миграции производительности...")
-    apply_migration()
+    migration_path = sys.argv[1] if len(sys.argv) > 1 else None
+    logger.info(f"Запуск миграции{' ' + migration_path if migration_path else ' (последняя)'}...")
+    apply_migration(migration_path)
 

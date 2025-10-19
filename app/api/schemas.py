@@ -101,6 +101,7 @@ class SubTabProductBase(BaseModel):
     product_remonline_id: int
     custom_name: Optional[str] = None
     custom_category: Optional[str] = None
+    price_settings: Dict[str, Dict[str, Any]] = {}  # {"base": {"type": "percentage", "value": 10}, ...}
     order_index: int = 0
     is_active: bool = True
 
@@ -112,6 +113,7 @@ class SubTabProductCreate(SubTabProductBase):
 class SubTabProductUpdate(BaseModel):
     custom_name: Optional[str] = None
     custom_category: Optional[str] = None
+    price_settings: Optional[Dict[str, Dict[str, Any]]] = None  # {"base": {"type": "percentage", "value": 10}, ...}
     order_index: Optional[int] = None
     is_active: Optional[bool] = None
 
@@ -122,6 +124,7 @@ class SubTabProductResponse(BaseModel):
     product_remonline_id: int
     custom_name: Optional[str] = None
     custom_category: Optional[str] = None
+    price_settings: Dict[str, Dict[str, Any]] = {}
     order_index: int
     is_active: bool
     created_at: datetime

@@ -163,6 +163,65 @@
       </div>
     </div>
 
+    <!-- Modal: Настройка цены для товара в подвкладке -->
+    <div class="modal fade" id="priceAdjustmentModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header py-2">
+            <h6 class="modal-title mb-0">Настройка цены</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label fw-bold" id="priceModalProductName">Товар</label>
+              <div class="text-muted small" id="priceModalSubtabName">Подвкладка</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Тип цены</label>
+              <select class="form-select" id="priceTypeSelect">
+                <option value="base">Базовая цена</option>
+                <option value="48388">Розничная</option>
+                <option value="97150">Партнёр</option>
+                <option value="377836">Продажа зч</option>
+                <option value="555169">Продажа зч VIP</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Оригинальная цена</label>
+              <div class="fw-bold" id="priceModalOriginalPrice">-</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Тип модификации</label>
+              <select class="form-select" id="priceAdjustmentType">
+                <option value="none">Без изменений</option>
+                <option value="percentage">Процент от оригинала</option>
+                <option value="fixed">Фиксированная цена</option>
+                <option value="absolute">Абсолютное изменение (+/-)</option>
+              </select>
+            </div>
+            <div class="mb-3" id="priceAdjustmentValueGroup">
+              <label class="form-label" id="priceAdjustmentValueLabel">Значение</label>
+              <div class="input-group">
+                <input type="number" class="form-control" id="priceAdjustmentValue" step="0.01" placeholder="0">
+                <span class="input-group-text" id="priceAdjustmentUnit">₽</span>
+              </div>
+              <div class="form-text">
+                <span id="priceHelpText">Укажите процент изменения (например, 10 для +10%)</span>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Результат</label>
+              <div class="alert alert-info mb-0" id="priceModalCalculatedPrice">-</div>
+            </div>
+          </div>
+          <div class="modal-footer py-2">
+            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Отмена</button>
+            <button type="button" class="btn btn-sm btn-primary" id="savePriceAdjustment">Сохранить</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script src="/static/js/tab.js"></script>
     <script src="/static/js/tabs.js"></script>
     <script src="/static/js/products.js"></script>

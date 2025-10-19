@@ -636,6 +636,19 @@ function renderTable(productsWithStocks) {
     if (p.is_missing) {
       tr.classList.add('table-warning');
     }
+    
+    // Получаем настройки цены для товара из активной подвкладки
+    const subtabProduct = window.activeSubtab?.products?.find(sp => 
+      sp.product_remonline_id === p.remonline_id
+    );
+    
+    // Форматируем цены с учетом настроек для каждого типа
+    const priceBaseFormatted = p.is_missing ? '-' : (p.price != null ? formatPriceCell(p.price, subtabProduct, 'base') : '-');
+    const price48388Formatted = p.is_missing ? '-' : formatPriceCell(p.prices['48388'], subtabProduct, '48388');
+    const price97150Formatted = p.is_missing ? '-' : formatPriceCell(p.prices['97150'], subtabProduct, '97150');
+    const price377836Formatted = p.is_missing ? '-' : formatPriceCell(p.prices['377836'], subtabProduct, '377836');
+    const price555169Formatted = p.is_missing ? '-' : formatPriceCell(p.prices['555169'], subtabProduct, '555169');
+    
     tr.innerHTML = `
       <td class="photos-col" data-col="photos">
         <div class="thumbs">${p.is_missing ? '<div class="text-muted small">Нет изображений</div>' : (p.images || []).slice(0,3).map(u => `<img src="${escapeAttr(u.thumbnail || u)}" data-full="${escapeAttr(u.full || u)}" class="thumb" loading="lazy" alt="">`).join('')}</div>
@@ -662,11 +675,11 @@ function renderTable(productsWithStocks) {
         ${escapeHtml(p.display_category || p.category || '-')}
         ${p.is_custom_category ? '<small class="text-success ms-1" title="Кастомная категория">✓</small>' : ''}
       </td>
-      <td class="price-base-col" data-col="price-base">${p.is_missing ? '-' : (p.price != null ? p.price : '-')}</td>
-      <td class="price-col" data-price="48388" data-col="price-48388">${p.is_missing ? '-' : formatPrice(p.prices['48388'])}</td>
-      <td class="price-col" data-price="97150" data-col="price-97150">${p.is_missing ? '-' : formatPrice(p.prices['97150'])}</td>
-      <td class="price-col" data-price="377836" data-col="price-377836">${p.is_missing ? '-' : formatPrice(p.prices['377836'])}</td>
-      <td class="price-col" data-price="555169" data-col="price-555169">${p.is_missing ? '-' : formatPrice(p.prices['555169'])}</td>
+      <td class="price-base-col" data-col="price-base">${priceBaseFormatted}</td>
+      <td class="price-col" data-price="48388" data-col="price-48388">${price48388Formatted}</td>
+      <td class="price-col" data-price="97150" data-col="price-97150">${price97150Formatted}</td>
+      <td class="price-col" data-price="377836" data-col="price-377836">${price377836Formatted}</td>
+      <td class="price-col" data-price="555169" data-col="price-555169">${price555169Formatted}</td>
       <td class="total-col" data-col="total">${p.is_missing ? '-' : formatPrice(p.totalStock)}</td>
       ${warehousesToShow.map(w => `<td class="warehouse-col" data-wh="${w.remonline_id}" data-col="wh-${w.remonline_id}">${p.is_missing ? '-' : (p.stocks[w.remonline_id] ?? 0)}</td>`).join('')}
     `;
@@ -678,6 +691,7 @@ function renderTable(productsWithStocks) {
   applyColumnVisibility();
   applyColumnOrder();
   initDragAndDrop();
+  attachPriceClickHandlers();
 }
 
 function escapeHtml(str) {
@@ -1835,6 +1849,9 @@ function initClassicTheme() {
   
   // Дополнительно инициализируем при открытии модального окна
   initColumnsModal();
+  
+  // Инициализируем настройку цен
+  initPriceAdjustment();
 }
 
 // Экспортируем функцию для использования в theme-manager
@@ -2162,5 +2179,368 @@ function initColumnsModal() {
       loadTabsSettings();
     });
   }
+}
+
+// ==================== Настройка цен для товаров в подвкладках ====================
+
+let priceAdjustmentState = {
+  subtabProductId: null,
+  productRemonlineId: null,
+  currentPriceType: 'base', // текущий выбранный тип цены
+  allPrices: {}, // все цены товара: {base: 1000, '48388': 1200, ...}
+  priceSettings: {} // все настройки: {base: {type: 'percentage', value: 10}, ...}
+};
+
+/**
+ * Рассчитывает модифицированную цену на основе настроек
+ */
+function calculateAdjustedPrice(originalPrice, adjustmentType, adjustmentValue) {
+  // Проверяем валидность originalPrice
+  if (originalPrice == null || isNaN(originalPrice)) {
+    return null;
+  }
+  
+  if (!adjustmentType || adjustmentType === 'none') {
+    return null; // Нет модификации
+  }
+  
+  let result = originalPrice;
+  
+  switch(adjustmentType) {
+    case 'percentage':
+      result = originalPrice * (1 + adjustmentValue / 100);
+      break;
+    case 'fixed':
+      result = adjustmentValue;
+      break;
+    case 'absolute':
+      result = originalPrice + adjustmentValue;
+      break;
+  }
+  
+  return result;
+}
+
+/**
+ * Форматирует ячейку цены с учетом настроек для конкретного типа цены
+ */
+function formatPriceCell(originalPrice, subtabProduct, priceType = 'base') {
+  if (!subtabProduct || !window.activeSubtab) {
+    return originalPrice != null ? originalPrice.toFixed(2) : '-';
+  }
+  
+  // Получаем настройки для конкретного типа цены
+  const priceSettings = subtabProduct.price_settings || {};
+  const settings = priceSettings[priceType];
+  
+  if (!settings || settings.type === 'none') {
+    return originalPrice != null ? originalPrice.toFixed(2) : '-';
+  }
+  
+  const adjustedPrice = calculateAdjustedPrice(
+    originalPrice,
+    settings.type,
+    settings.value
+  );
+  
+  if (adjustedPrice === null) {
+    return originalPrice != null ? originalPrice.toFixed(2) : '-';
+  }
+  
+  // Возвращаем HTML с оригинальной ценой (меньше и тусклее) и новой ценой
+  const originalPriceHtml = `<span style="font-size: 0.75em; opacity: 0.5;">${originalPrice.toFixed(2)}</span>`;
+  const adjustedPriceHtml = `<span>${adjustedPrice.toFixed(2)}</span>`;
+  
+  return `${originalPriceHtml}<br>${adjustedPriceHtml}`;
+}
+
+/**
+ * Инициализирует обработчики для настройки цен
+ */
+function initPriceAdjustment() {
+  const modal = document.getElementById('priceAdjustmentModal');
+  const priceTypeSelect = document.getElementById('priceTypeSelect');
+  const typeSelect = document.getElementById('priceAdjustmentType');
+  const valueInput = document.getElementById('priceAdjustmentValue');
+  const saveBtn = document.getElementById('savePriceAdjustment');
+  
+  if (!modal || !priceTypeSelect || !typeSelect || !valueInput || !saveBtn) return;
+  
+  // Слушаем изменение типа цены (base, 48388, и т.д.)
+  priceTypeSelect.addEventListener('change', onPriceTypeChange);
+  
+  // Слушаем изменение типа модификации
+  typeSelect.addEventListener('change', updatePriceAdjustmentUI);
+  
+  // Слушаем изменение значения для расчета результата в реальном времени
+  valueInput.addEventListener('input', calculatePriceResult);
+  
+  // Сохранение настроек
+  saveBtn.addEventListener('click', savePriceAdjustmentSettings);
+  
+  // Инициализация Bootstrap модального окна
+  const bsModal = new bootstrap.Modal(modal);
+}
+
+/**
+ * Обработчик изменения типа цены в модальном окне
+ */
+function onPriceTypeChange() {
+  const priceType = document.getElementById('priceTypeSelect').value;
+  priceAdjustmentState.currentPriceType = priceType;
+  
+  // Обновляем отображение оригинальной цены
+  const originalPrice = priceAdjustmentState.allPrices[priceType] || 0;
+  document.getElementById('priceModalOriginalPrice').textContent = `${originalPrice.toFixed(2)} ₽`;
+  
+  // Загружаем настройки для этого типа цены
+  const settings = priceAdjustmentState.priceSettings[priceType] || {type: 'none', value: 0};
+  document.getElementById('priceAdjustmentType').value = settings.type;
+  document.getElementById('priceAdjustmentValue').value = settings.value || 0;
+  
+  // Обновляем UI
+  updatePriceAdjustmentUI();
+}
+
+/**
+ * Обновляет UI модального окна в зависимости от выбранного типа
+ */
+function updatePriceAdjustmentUI() {
+  const type = document.getElementById('priceAdjustmentType').value;
+  const valueGroup = document.getElementById('priceAdjustmentValueGroup');
+  const valueLabel = document.getElementById('priceAdjustmentValueLabel');
+  const unit = document.getElementById('priceAdjustmentUnit');
+  const helpText = document.getElementById('priceHelpText');
+  const valueInput = document.getElementById('priceAdjustmentValue');
+  
+  const priceType = priceAdjustmentState.currentPriceType;
+  const originalPrice = priceAdjustmentState.allPrices[priceType] || 0;
+  
+  if (type === 'none') {
+    valueGroup.style.display = 'none';
+  } else {
+    valueGroup.style.display = 'block';
+    
+    switch(type) {
+      case 'percentage':
+        valueLabel.textContent = 'Процент';
+        unit.textContent = '%';
+        helpText.textContent = 'Укажите процент изменения (например, 10 для +10%, -10 для -10%)';
+        valueInput.placeholder = '0';
+        break;
+      case 'fixed':
+        valueLabel.textContent = 'Фиксированная цена';
+        unit.textContent = '₽';
+        helpText.textContent = 'Укажите новую цену товара';
+        valueInput.placeholder = originalPrice.toFixed(2);
+        break;
+      case 'absolute':
+        valueLabel.textContent = 'Изменение';
+        unit.textContent = '₽';
+        helpText.textContent = 'Укажите сумму изменения (например, 100 для +100₽, -100 для -100₽)';
+        valueInput.placeholder = '0';
+        break;
+    }
+  }
+  
+  calculatePriceResult();
+}
+
+/**
+ * Рассчитывает и отображает результирующую цену
+ */
+function calculatePriceResult() {
+  const type = document.getElementById('priceAdjustmentType').value;
+  const value = parseFloat(document.getElementById('priceAdjustmentValue').value) || 0;
+  const priceType = priceAdjustmentState.currentPriceType;
+  const original = priceAdjustmentState.allPrices[priceType] || 0;
+  const resultDiv = document.getElementById('priceModalCalculatedPrice');
+  
+  if (type === 'none') {
+    resultDiv.textContent = `${original.toFixed(2)} ₽`;
+    return;
+  }
+  
+  let result = original;
+  
+  switch(type) {
+    case 'percentage':
+      result = original * (1 + value / 100);
+      break;
+    case 'fixed':
+      result = value;
+      break;
+    case 'absolute':
+      result = original + value;
+      break;
+  }
+  
+  const diff = result - original;
+  const diffPercent = original > 0 ? ((diff / original) * 100).toFixed(1) : 0;
+  const diffSign = diff >= 0 ? '+' : '';
+  
+  resultDiv.innerHTML = `
+    <strong>${result.toFixed(2)} ₽</strong>
+    <div class="small ${diff >= 0 ? 'text-success' : 'text-danger'}">
+      ${diffSign}${diff.toFixed(2)} ₽ (${diffSign}${diffPercent}%)
+    </div>
+  `;
+}
+
+/**
+ * Открывает модальное окно настройки цены
+ */
+function openPriceAdjustmentModal(subtabProductId, productRemonlineId, productName, subtabName, allPrices, initialPriceType, priceSettings) {
+  priceAdjustmentState = {
+    subtabProductId,
+    productRemonlineId,
+    currentPriceType: initialPriceType,
+    allPrices, // {base: 1000, '48388': 1200, ...}
+    priceSettings // {base: {type: 'percentage', value: 10}, ...}
+  };
+  
+  // Заполняем информацию о товаре
+  document.getElementById('priceModalProductName').textContent = productName;
+  document.getElementById('priceModalSubtabName').textContent = `Подвкладка: ${subtabName}`;
+  
+  // Устанавливаем текущий тип цены
+  document.getElementById('priceTypeSelect').value = initialPriceType;
+  
+  // Обновляем отображение оригинальной цены
+  const originalPrice = allPrices[initialPriceType] || 0;
+  document.getElementById('priceModalOriginalPrice').textContent = `${originalPrice.toFixed(2)} ₽`;
+  
+  // Устанавливаем настройки для текущего типа цены
+  const settings = priceSettings[initialPriceType] || {type: 'none', value: 0};
+  document.getElementById('priceAdjustmentType').value = settings.type;
+  document.getElementById('priceAdjustmentValue').value = settings.value || 0;
+  
+  // Обновляем UI
+  updatePriceAdjustmentUI();
+  
+  // Открываем модальное окно
+  const modal = new bootstrap.Modal(document.getElementById('priceAdjustmentModal'));
+  modal.show();
+}
+
+/**
+ * Сохраняет настройки цены через API
+ */
+async function savePriceAdjustmentSettings() {
+  const priceType = priceAdjustmentState.currentPriceType;
+  const type = document.getElementById('priceAdjustmentType').value;
+  const value = parseFloat(document.getElementById('priceAdjustmentValue').value) || 0;
+  
+  // Обновляем настройки для текущего типа цены
+  const updatedSettings = {...priceAdjustmentState.priceSettings};
+  updatedSettings[priceType] = {type, value};
+  
+  // Удаляем пустые настройки (type: 'none')
+  Object.keys(updatedSettings).forEach(key => {
+    if (updatedSettings[key].type === 'none') {
+      delete updatedSettings[key];
+    }
+  });
+  
+  try {
+    const response = await fetch(`/api/v1/tabs/subtabs/products/${priceAdjustmentState.subtabProductId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        price_settings: updatedSettings
+      })
+    });
+    
+    if (response.ok) {
+      const updatedProduct = await response.json();
+      
+      // Обновляем данные в активной подвкладке
+      if (window.activeSubtab && window.activeSubtab.products) {
+        const productIndex = window.activeSubtab.products.findIndex(
+          p => p.id === priceAdjustmentState.subtabProductId
+        );
+        if (productIndex !== -1) {
+          window.activeSubtab.products[productIndex] = updatedProduct;
+        }
+      }
+      
+      // Закрываем модальное окно
+      const modal = bootstrap.Modal.getInstance(document.getElementById('priceAdjustmentModal'));
+      modal.hide();
+      
+      // Перезагружаем данные таблицы (обновляет отображение)
+      await loadPage(window.activeSubtab ? true : false);
+      
+      console.log('Настройки цены сохранены и таблица обновлена');
+    } else {
+      console.error('Ошибка сохранения настроек цены');
+    }
+  } catch (error) {
+    console.error('Ошибка при сохранении настроек цены:', error);
+  }
+}
+
+/**
+ * Добавляет обработчики клика на ячейки с ценами
+ */
+function attachPriceClickHandlers() {
+  // Только если есть активная подвкладка
+  if (!window.activeSubtab) return;
+  
+  const priceCells = document.querySelectorAll('.price-col, .price-base-col');
+  
+  priceCells.forEach(cell => {
+    // Добавляем класс для визуального указания возможности клика
+    cell.classList.add('editable-price');
+    
+    cell.addEventListener('click', function(e) {
+      const row = this.closest('tr');
+      const productId = row.querySelector('.product-menu')?.getAttribute('data-product-id');
+      const productRemonlineId = row.querySelector('.product-menu')?.getAttribute('data-product-remonline-id');
+      const productName = row.querySelector('.name-wrap')?.textContent.trim();
+      
+      if (!productId || !productRemonlineId) return;
+      
+      // Определяем тип цены из data-атрибутов
+      let priceType = 'base';
+      if (this.classList.contains('price-col')) {
+        priceType = this.getAttribute('data-price') || 'base';
+      }
+      
+      // Собираем все цены товара из строки таблицы
+      const allPrices = {
+        base: parseFloat(row.querySelector('.price-base-col')?.textContent.replace(/[^\d.]/g, '')) || 0
+      };
+      
+      // Получаем цены из ячеек с data-price
+      row.querySelectorAll('.price-col[data-price]').forEach(priceCell => {
+        const pType = priceCell.getAttribute('data-price');
+        const price = parseFloat(priceCell.textContent.replace(/[^\d.]/g, '')) || 0;
+        allPrices[pType] = price;
+      });
+      
+      // Ищем настройки цены для этого товара в активной подвкладке
+      const subtabProduct = window.activeSubtab.products?.find(p => 
+        p.product_remonline_id === parseInt(productRemonlineId)
+      );
+      
+      if (!subtabProduct) {
+        console.warn('Товар не найден в активной подвкладке');
+        return;
+      }
+      
+      const priceSettings = subtabProduct.price_settings || {};
+      
+      openPriceAdjustmentModal(
+        subtabProduct.id,
+        productRemonlineId,
+        productName,
+        window.activeSubtab.name,
+        allPrices,
+        priceType,
+        priceSettings
+      );
+    });
+  });
 }
 

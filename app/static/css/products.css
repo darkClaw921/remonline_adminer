@@ -165,3 +165,54 @@ body[data-theme="tile"] .theme-classic-only {
     transform: scale(1.1);
 }
 
+/* Настройка цены: hover на ячейках */
+.price-col.editable-price {
+    cursor: pointer;
+    position: relative;
+}
+
+.price-col.editable-price:hover {
+    background-color: #f0f8ff !important;
+    transition: background-color 0.2s ease;
+}
+
+.price-col.editable-price::after {
+    content: '⚙️';
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.7rem;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.price-col.editable-price:hover::after {
+    opacity: 0.6;
+}
+
+.price-base-col.editable-price {
+    cursor: pointer;
+    position: relative;
+}
+
+.price-base-col.editable-price:hover {
+    background-color: #f0f8ff !important;
+    transition: background-color 0.2s ease;
+}
+
+.price-base-col.editable-price::after {
+    content: '⚙️';
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.7rem;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.price-base-col.editable-price:hover::after {
+    opacity: 0.6;
+}
+

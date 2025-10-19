@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Index
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -48,7 +49,7 @@ class SubTab(Base):
 
 
 class SubTabProduct(Base):
-    """Модель товара в подвкладке с возможностью переименования"""
+    """Модель товара в подвкладке с возможностью переименования и настройки цены"""
     __tablename__ = "subtab_products"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -56,6 +57,7 @@ class SubTabProduct(Base):
     product_remonline_id = Column(Integer, nullable=False, index=True)
     custom_name = Column(String)
     custom_category = Column(String)
+    price_settings = Column(JSONB, default={}, nullable=False)  # JSON: {"base": {"type": "percentage", "value": 10}, ...}
     order_index = Column(Integer, default=0, index=True)
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
