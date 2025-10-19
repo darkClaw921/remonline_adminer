@@ -811,25 +811,44 @@ window.deleteSubtab = async function(tabId, subtabId) {
 };
 
 // Загрузить товары для выбранной подвкладки
-function loadProductsForSubtab(subtab) {
+async function loadProductsForSubtab(subtab) {
   console.log('Загрузка товаров для подвкладки:', subtab);
   
-  // Создаем временный объект подвкладки
-  const tempSubtab = new Subtab({
-    id: subtab.id,
-    name: subtab.name,
-    order_index: subtab.order_index,
-    is_active: true
-  }, null);
-  
-  // Устанавливаем как активную подвкладку
-  window.activeSubtab = tempSubtab;
-  
-  // Вызываем функцию loadPage из products.js для загрузки товаров подвкладки
-  if (typeof loadPage === 'function') {
-    loadPage(0);
-  } else {
-    console.warn('Функция loadPage не найдена');
+  try {
+    // Сначала загружаем товары подвкладки из API
+    console.log(`Загружаем товары подвкладки ${subtab.id} из API...`);
+    const response = await fetch(`/api/v1/tabs/subtabs/${subtab.id}/products`);
+    
+    if (!response.ok) {
+      throw new Error('Ошибка загрузки товаров подвкладки');
+    }
+    
+    const products = await response.json();
+    console.log(`Загружено товаров подвкладки:`, products.length);
+    
+    // Создаем объект подвкладки с загруженными товарами
+    const tempSubtab = new Subtab({
+      id: subtab.id,
+      name: subtab.name,
+      order_index: subtab.order_index,
+      is_active: true,
+      products: products // Передаем загруженные товары
+    }, null);
+    
+    // Устанавливаем как активную подвкладку
+    window.activeSubtab = tempSubtab;
+    
+    console.log('Активная подвкладка установлена, товары:', tempSubtab.getProductIds());
+    
+    // Вызываем функцию loadPage из products.js для загрузки товаров подвкладки
+    if (typeof loadPage === 'function') {
+      await loadPage(false);
+    } else {
+      console.warn('Функция loadPage не найдена');
+    }
+  } catch (error) {
+    console.error('Ошибка загрузки товаров подвкладки:', error);
+    alert('Не удалось загрузить товары подвкладки');
   }
 }
 

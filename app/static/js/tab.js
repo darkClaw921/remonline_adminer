@@ -212,6 +212,17 @@ class Subtab {
                                 <div id="bulkAddResult" class="mt-2"></div>
                             </div>
                         </div>
+                        <div class="row mb-3" id="missingProductsSection" style="display: none;">
+                            <div class="col-12">
+                                <div class="missing-products-indicator">
+                                    <span id="missingProductsCount"></span>
+                                    <button type="button" class="btn btn-warning btn-sm ms-3" id="loadAllMissingProducts">
+                                        Загрузить все отсутствующие товары
+                                    </button>
+                                </div>
+                                <div id="missingProductsProgress" class="mt-2" style="display: none;"></div>
+                            </div>
+                        </div>
                         <div class="row">
                             <div class="col-md-6">
                                 <h6>Доступные товары</h6>
@@ -314,6 +325,27 @@ class Subtab {
             this.renderProductsList(availableContainer, availableProducts, 'available');
             this.renderProductsList(subtabContainer, currentProducts, 'current');
             
+            // Привязываем события для отсутствующих товаров
+            this.bindMissingProductsEvents(subtabContainer);
+            
+            // Подсчитываем и настраиваем секцию загрузки отсутствующих товаров
+            const missingCount = currentProducts.filter(p => p.is_missing).length;
+            const missingSection = modal.querySelector('#missingProductsSection');
+            const missingCountSpan = modal.querySelector('#missingProductsCount');
+            const loadAllButton = modal.querySelector('#loadAllMissingProducts');
+            
+            if (missingCount > 0) {
+                missingSection.style.display = '';
+                missingCountSpan.innerHTML = `⚠️ Отсутствует товаров в БД: <strong>${missingCount}</strong>`;
+                
+                // Настраиваем обработчик для кнопки массовой загрузки
+                loadAllButton.onclick = () => {
+                    this.loadAllMissingProducts(modal);
+                };
+            } else {
+                missingSection.style.display = 'none';
+            }
+            
             // Настраиваем поиск
             let searchTimeout;
             searchInput.addEventListener('input', (e) => {
@@ -363,11 +395,12 @@ class Subtab {
                 const displayName = product.custom_name || product.name;
                 const displayCategory = product.custom_category || product.category || 'Без категории';
                 
-                const cardClass = product.is_missing ? 'card mb-2 draggable-product border-warning' : 'card mb-2 draggable-product';
+                const cardClass = product.is_missing ? 'card mb-2 draggable-product border-warning missing-product-hoverable' : 'card mb-2 draggable-product';
                 const missingBadge = product.is_missing ? '<span class="badge bg-warning text-dark ms-1">Не в БД</span>' : '';
+                const missingDataAttr = product.is_missing ? `data-missing-remonline-id="${product.product_remonline_id || product.remonline_id}"` : '';
                 
                 return `
-                    <div class="${cardClass}" data-product-id="${product.id}" data-remonline-id="${product.product_remonline_id || product.remonline_id}" draggable="true">
+                    <div class="${cardClass}" data-product-id="${product.id}" data-remonline-id="${product.product_remonline_id || product.remonline_id}" ${missingDataAttr} draggable="true">
                         <div class="card-body p-2">
                             <div class="row align-items-center">
                                 <div class="col-auto pe-2">
@@ -445,6 +478,104 @@ class Subtab {
             element.style.cursor = 'pointer';
             element.style.borderBottom = '1px dashed #007bff';
         });
+    }
+
+    /**
+     * Привязывает события для отсутствующих товаров (загрузка из Remonline)
+     */
+    bindMissingProductsEvents(container) {
+        // Создаём tooltip элемент если его ещё нет
+        let tooltip = document.getElementById('missingProductTooltip');
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.id = 'missingProductTooltip';
+            tooltip.className = 'missing-product-tooltip';
+            tooltip.innerHTML = `
+                <button type="button" class="btn btn-warning btn-sm" id="loadMissingProductBtn">
+                    Загрузить из Remonline
+                </button>
+            `;
+            document.body.appendChild(tooltip);
+        }
+
+        const missingProducts = container.querySelectorAll('.missing-product-hoverable');
+        
+        missingProducts.forEach(card => {
+            const remonlineId = card.dataset.missingRemonlineId;
+            if (!remonlineId) return;
+
+            // Показываем tooltip при наведении
+            card.addEventListener('mouseenter', (e) => {
+                tooltip.classList.add('show');
+                // Позиционируем tooltip рядом с курсором
+                const updatePosition = (event) => {
+                    tooltip.style.left = (event.clientX + 15) + 'px';
+                    tooltip.style.top = (event.clientY + 15) + 'px';
+                };
+                updatePosition(e);
+                card.addEventListener('mousemove', updatePosition);
+                card._updatePosition = updatePosition;
+            });
+
+            // Скрываем tooltip при уходе курсора
+            card.addEventListener('mouseleave', () => {
+                tooltip.classList.remove('show');
+                if (card._updatePosition) {
+                    card.removeEventListener('mousemove', card._updatePosition);
+                    delete card._updatePosition;
+                }
+            });
+        });
+
+        // Обработчик клика на кнопку загрузки
+        const loadBtn = tooltip.querySelector('#loadMissingProductBtn');
+        loadBtn.onclick = async () => {
+            // Находим карточку над которой сейчас tooltip
+            const hoveredCard = document.querySelector('.missing-product-hoverable:hover');
+            if (!hoveredCard) return;
+
+            const remonlineId = hoveredCard.dataset.missingRemonlineId;
+            if (!remonlineId) return;
+
+            // Скрываем tooltip
+            tooltip.classList.remove('show');
+
+            // Меняем текст кнопки на статус
+            loadBtn.disabled = true;
+            const originalText = loadBtn.textContent;
+
+            try {
+                // Используем существующий метод из products.js
+                if (typeof window.refreshMissingProduct === 'function') {
+                    await window.refreshMissingProduct(remonlineId, loadBtn);
+                    
+                    // После успешной загрузки обновляем модальное окно
+                    const modal = document.querySelector('.modal.show');
+                    if (modal) {
+                        await this.loadProductsForModal(modal);
+                    }
+                    
+                    // Обновляем данные подвкладки
+                    await this.refreshSubtabData();
+                    
+                    // Если это активная подвкладка, обновляем основную таблицу
+                    if (window.activeSubtab && window.activeSubtab.id === this.id) {
+                        window.activeSubtab = this;
+                        if (typeof window.loadPage === 'function') {
+                            setTimeout(() => window.loadPage(), 100);
+                        }
+                    }
+                } else {
+                    throw new Error('Метод refreshMissingProduct не найден');
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки товара:', error);
+                alert('Не удалось загрузить товар из Remonline');
+            } finally {
+                loadBtn.disabled = false;
+                loadBtn.textContent = originalText;
+            }
+        };
     }
 
     /**
@@ -774,6 +905,108 @@ class Subtab {
         } catch (error) {
             console.error('Ошибка добавления товаров:', error);
             alert('Не удалось добавить товары в подвкладку');
+        }
+    }
+
+    /**
+     * Загружает все отсутствующие товары из Remonline
+     */
+    async loadAllMissingProducts(modal) {
+        const progressDiv = modal.querySelector('#missingProductsProgress');
+        const loadButton = modal.querySelector('#loadAllMissingProducts');
+        const countSpan = modal.querySelector('#missingProductsCount');
+        
+        // Собираем все отсутствующие товары
+        const missingCards = modal.querySelectorAll('.missing-product-hoverable');
+        const missingIds = Array.from(missingCards)
+            .map(card => card.dataset.missingRemonlineId)
+            .filter(id => id);
+        
+        if (missingIds.length === 0) {
+            alert('Нет отсутствующих товаров для загрузки');
+            return;
+        }
+        
+        // Блокируем кнопку и показываем прогресс
+        loadButton.disabled = true;
+        loadButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Загружаем...';
+        progressDiv.style.display = 'block';
+        
+        let loaded = 0;
+        let errors = 0;
+        const total = missingIds.length;
+        
+        try {
+            for (let i = 0; i < missingIds.length; i++) {
+                const remonlineId = missingIds[i];
+                
+                // Обновляем прогресс
+                progressDiv.innerHTML = `Загружаем товар ${i + 1} из ${total} (ID: ${remonlineId})...`;
+                
+                try {
+                    // Создаём временный элемент для статуса
+                    const statusEl = document.createElement('span');
+                    statusEl.textContent = 'Загрузка...';
+                    
+                    if (typeof window.refreshMissingProduct === 'function') {
+                        await window.refreshMissingProduct(remonlineId, statusEl);
+                        loaded++;
+                        progressDiv.innerHTML += `<br>✅ Товар ${remonlineId} загружен`;
+                    } else {
+                        throw new Error('Метод refreshMissingProduct не найден');
+                    }
+                } catch (error) {
+                    console.error(`Ошибка загрузки товара ${remonlineId}:`, error);
+                    errors++;
+                    progressDiv.innerHTML += `<br>❌ Ошибка загрузки товара ${remonlineId}: ${error.message}`;
+                }
+                
+                // Небольшая пауза между запросами
+                if (i < missingIds.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            }
+            
+            // Показываем итоговую статистику
+            progressDiv.innerHTML = `
+                <div class="alert alert-success mt-2">
+                    <strong>Загрузка завершена!</strong><br>
+                    Успешно загружено: ${loaded}<br>
+                    Ошибок: ${errors}
+                </div>
+            `;
+            
+            // Обновляем данные подвкладки
+            await this.refreshSubtabData();
+            
+            // Если это активная подвкладка, синхронизируем глобальную ссылку
+            if (window.activeSubtab && window.activeSubtab.id === this.id) {
+                window.activeSubtab = this;
+            }
+            
+            // Перезагружаем модальное окно
+            await this.loadProductsForModal(modal);
+            
+            // Если это активная подвкладка, обновляем основную таблицу
+            if (window.activeSubtab && window.activeSubtab.id === this.id) {
+                if (typeof window.loadPage === 'function') {
+                    setTimeout(() => window.loadPage(), 100);
+                }
+            }
+            
+            // Скрываем прогресс через 5 секунд
+            setTimeout(() => {
+                progressDiv.style.display = 'none';
+                progressDiv.innerHTML = '';
+            }, 5000);
+            
+        } catch (error) {
+            console.error('Ошибка массовой загрузки товаров:', error);
+            progressDiv.innerHTML = `<div class="alert alert-danger">Ошибка: ${error.message}</div>`;
+        } finally {
+            // Восстанавливаем кнопку
+            loadButton.disabled = false;
+            loadButton.innerHTML = 'Загрузить все отсутствующие товары';
         }
     }
 

@@ -1571,6 +1571,9 @@ async function refreshMissingProduct(remonlineId, buttonEl) {
   }
 }
 
+// Экспортируем для использования в других модулях (tab.js)
+window.refreshMissingProduct = refreshMissingProduct;
+
 async function loadStocksForProduct(productId) {
   const url = `${API_BASE}/stocks/product/${productId}?include_details=true`;
   const resp = await fetchJson(url);
