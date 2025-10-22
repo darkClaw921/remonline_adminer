@@ -184,14 +184,14 @@ async def get_products_filtered(
 @router.get("/", response_model=APIResponse)
 async def get_products(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 100000,
     name: Optional[str] = None,
     sku: Optional[str] = None,
     category: Optional[str] = None,
     is_active: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):
-    """Получить все товары с фильтрами"""
+    """Получить все товары с фильтрами. Максимальный лимит: 100000 товаров"""
     query = db.query(Product)
 
     # Применяем фильтры

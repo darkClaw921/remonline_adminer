@@ -328,14 +328,13 @@ class TabsManager {
             
             subtabsContainer.style.display = 'block';
             
-            // Выбираем первую подвкладку, если нет активной
+            // НЕ выбираем автоматически подвкладку при инициализации,
+            // чтобы показать все товары с пагинацией (50 товаров вместо всех)
+            // Пользователь сам выберет подвкладку когда захочет
             if (!this.activeSubtab || this.activeSubtab.parentTab !== tab) {
-                const firstSubtab = tab.subtabs.find(s => s.isActive) || tab.subtabs[0];
-                if (firstSubtab) {
-                    this.activeSubtab = firstSubtab;
-                    firstSubtab.select();
-                    this.onSubtabSelected(firstSubtab);
-                }
+                // Сбрасываем активную подвкладку
+                this.activeSubtab = null;
+                this.onSubtabSelected(null);
             }
         } else {
             subtabsContainer.style.display = 'none';

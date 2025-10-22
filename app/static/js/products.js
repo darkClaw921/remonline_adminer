@@ -1,4 +1,9 @@
 const API_BASE = '/api/v1';
+
+// Константы батчинга для параллельной загрузки
+const PRODUCTS_BATCH_SIZE = 25; // Размер батча для загрузки товаров
+const STOCKS_BATCH_SIZE = 20;   // Размер батча для загрузки остатков
+
 // Склады из API (будут загружены при инициализации)
 let TARGET_WAREHOUSES = [];
 
@@ -790,6 +795,53 @@ function formatDate(iso) {
   } catch { return '-'; }
 }
 
+/**
+ * Загружает товары батчами для увеличения скорости
+ * @param {string} baseUrl - базовый URL без параметров skip/limit
+ * @param {number} totalLimit - общее количество товаров для загрузки
+ * @param {number} batchSize - размер одного батча
+ * @returns {Promise<Array>} - массив всех загруженных товаров
+ */
+async function loadProductsBatched(baseUrl, totalLimit, batchSize = 20) {
+  const batches = Math.ceil(totalLimit / batchSize);
+  const batchPromises = [];
+  
+  console.log(`📦 Загрузка ${totalLimit} товаров батчами: ${batches} батчей по ${batchSize} товаров`);
+  
+  for (let i = 0; i < batches; i++) {
+    const skip = i * batchSize;
+    const limit = Math.min(batchSize, totalLimit - skip);
+    const batchUrl = `${baseUrl}&skip=${skip}&limit=${limit}`;
+    batchPromises.push(fetchJson(batchUrl));
+  }
+  
+  // Загружаем все батчи параллельно
+  const startTime = Date.now();
+  const batchResults = await Promise.all(batchPromises);
+  const loadTime = Date.now() - startTime;
+  
+  // Объединяем результаты
+  let allProducts = [];
+  let totalCount = 0;
+  
+  batchResults.forEach((result, index) => {
+    if (result?.data) {
+      allProducts = allProducts.concat(result.data);
+      // Берем total из первого батча
+      if (index === 0 && result.total !== undefined) {
+        totalCount = result.total;
+      }
+    }
+  });
+  
+  console.log(`✅ Загружено ${allProducts.length} товаров за ${loadTime}ms (${batches} параллельных запросов)`);
+  
+  return {
+    data: allProducts,
+    total: totalCount || allProducts.length
+  };
+}
+
 async function loadPage(useFilters = false) {
   // Обычная пагинация - skip рассчитывается по номеру страницы
   const skip = (state.page - 1) * state.size;
@@ -799,14 +851,18 @@ async function loadPage(useFilters = false) {
   const isSubtabActive = window.activeSubtab && window.activeSubtab.getProductIds().length > 0;
   const loadLimit = isSubtabActive ? 5000 : state.size; // Увеличиваем лимит для подвкладок
   
-  let url;
+  // Настройки батчинга (используем глобальную константу PRODUCTS_BATCH_SIZE)
+  let USE_BATCHING = !isSubtabActive && loadLimit >= 25; // Используем батчи только для обычной загрузки
+  
+  let baseUrl;
+  let finalParams = new URLSearchParams();
+  
   if (useFilters || isSubtabActive) {
     // Используем новый endpoint с фильтрами (или принудительно для подвкладок)
-    const params = new URLSearchParams();
-    params.append('skip', isSubtabActive ? 0 : skip);
-    params.append('limit', isSubtabActive ? 10000 : loadLimit); // Увеличиваем лимит для подвкладок
+    finalParams.append('skip', isSubtabActive ? 0 : skip);
+    finalParams.append('limit', isSubtabActive ? 10000 : loadLimit); // Увеличиваем лимит для подвкладок
     
-    if (name) params.append('name', name);
+    if (name) finalParams.append('name', name);
     
     // Для подвкладок добавляем конкретные remonline_ids товаров
     if (isSubtabActive) {
@@ -822,7 +878,7 @@ async function loadPage(useFilters = false) {
             filteredIds = subtabProductIds.includes(searchAsNumber) ? [searchAsNumber] : [];
             console.log(`Поиск по remonline_id ${searchAsNumber} в подвкладке:`, filteredIds.length > 0 ? 'найден' : 'не найден');
             // Убираем name параметр так как фильтруем по remonline_ids
-            params.delete('name');
+            finalParams.delete('name');
           } else {
             // Текстовый поиск - оставляем все ID подвкладки, фильтрация будет на сервере по name + remonline_ids
             console.log('Текстовый поиск в подвкладке по запросу:', name);
@@ -830,59 +886,76 @@ async function loadPage(useFilters = false) {
         }
         
         if (filteredIds.length > 0) {
-          params.append('remonline_ids', filteredIds.join(','));
+          finalParams.append('remonline_ids', filteredIds.join(','));
           console.log('Загружаем товары по ID из подвкладки:', filteredIds);
         } else if (name && !isNaN(parseInt(name))) {
           // Если искали по ID но он не найден в подвкладке - не загружаем товары
           console.log('Товар с ID', name, 'не найден в текущей подвкладке');
-          params.append('remonline_ids', '0'); // Передаем несуществующий ID чтобы получить пустой результат
+          finalParams.append('remonline_ids', '0'); // Передаем несуществующий ID чтобы получить пустой результат
         }
       }
     }
     
     const f = state.filters;
     if (f.categories.length > 0) {
-      params.append('category', f.categories[0]); // Пока поддерживаем только одну категорию
+      finalParams.append('category', f.categories[0]); // Пока поддерживаем только одну категорию
     }
     if (f.warehouses.length > 0) {
-      params.append('warehouse_ids', f.warehouses.join(','));
+      finalParams.append('warehouse_ids', f.warehouses.join(','));
     }
-    if (f.priceMin != null) params.append('price_min', f.priceMin);
-    if (f.priceMax != null) params.append('price_max', f.priceMax);
-    if (f.stockMin != null) params.append('stock_min', f.stockMin);
-    if (f.stockMax != null) params.append('stock_max', f.stockMax);
+    if (f.priceMin != null) finalParams.append('price_min', f.priceMin);
+    if (f.priceMax != null) finalParams.append('price_max', f.priceMax);
+    if (f.stockMin != null) finalParams.append('stock_min', f.stockMin);
+    if (f.stockMax != null) finalParams.append('stock_max', f.stockMax);
     // Преобразуем значения сортировки для API (только поддерживаемые ключи)
     let sortBy = f.sortBy || 'name';
     const sortOrder = f.sortOrder || 'desc';
     const serverSortable = (['name','category','price','total'].includes(sortBy) || sortBy.startsWith('wh_'));
     if (sortBy === 'total') sortBy = 'total_stock';
     if (serverSortable) {
-      params.append('sort_by', sortBy);
-      params.append('sort_order', sortOrder);
+      finalParams.append('sort_by', sortBy);
+      finalParams.append('sort_order', sortOrder);
     }
     
     // Для подвкладок включаем все товары (активные и неактивные)
     if (!isSubtabActive) {
-      params.append('is_active', 'true');
+      finalParams.append('is_active', 'true');
     }
     
-    url = `${API_BASE}/products/filtered?${params.toString()}`;
+    baseUrl = `${API_BASE}/products/filtered`;
   } else {
     // Используем старый endpoint без фильтров
-    const nameQuery = name ? `&name=${name}` : '';
-    const currentSkip = skip;
-    const activeFilter = '&is_active=true';
-    url = `${API_BASE}/products/?skip=${currentSkip}&limit=${loadLimit}${nameQuery}${activeFilter}`;
+    baseUrl = `${API_BASE}/products/`;
+    finalParams = new URLSearchParams();
+    finalParams.append('skip', skip);
+    finalParams.append('limit', loadLimit);
+    if (name) finalParams.append('name', name);
+    finalParams.append('is_active', 'true');
   }
-  
-  console.log('Загружаем товары с URL:', url);
-  console.log('Активна подвкладка:', !!window.activeSubtab, 'Загружаем все товары:', isSubtabActive);
   
   if (state.isLoading) return;
   state.isLoading = true;
   loader.style.display = 'inline-block';
+  
   try {
-    const productsResp = await fetchJson(url);
+    let productsResp;
+    
+    // Используем батчинг для обычной загрузки (не для подвкладок)
+    if (USE_BATCHING) {
+      // Создаем базовый URL без skip/limit
+      const paramsForBatch = new URLSearchParams(finalParams);
+      paramsForBatch.delete('skip');
+      paramsForBatch.delete('limit');
+      const batchBaseUrl = `${baseUrl}?${paramsForBatch.toString()}`;
+      productsResp = await loadProductsBatched(batchBaseUrl, loadLimit, PRODUCTS_BATCH_SIZE);
+    } else {
+      // Обычная загрузка одним запросом (для подвкладок или маленьких запросов)
+      const url = `${baseUrl}?${finalParams.toString()}`;
+      console.log('Загружаем товары с URL:', url);
+      console.log('Активна подвкладка:', !!window.activeSubtab, 'Загружаем все товары:', isSubtabActive);
+      productsResp = await fetchJson(url);
+    }
+    
     let products = (productsResp?.data) || [];
     
     console.log('Получено товаров с сервера:', products.length);
@@ -1032,16 +1105,42 @@ async function loadPage(useFilters = false) {
       }
     }
 
-    // Ограничение конкурентности при загрузке остатков
-    const concurrency = 6;
-    const queue = products.map(p => async () => {
-      // Для отсутствующих товаров не загружаем остатки
-      if (p.is_missing) {
-        return { product: p, stocks: {} };
-      }
-      return { product: p, stocks: await loadStocksForProduct(p.id) };
+    // Загружаем остатки батчами (используем глобальную константу STOCKS_BATCH_SIZE)
+    const startTime = Date.now();
+    
+    // Фильтруем отсутствующие товары
+    const productsWithId = products.filter(p => !p.is_missing);
+    const missingProducts = products.filter(p => p.is_missing);
+    
+    // Разбиваем на батчи
+    const batches = [];
+    for (let i = 0; i < productsWithId.length; i += STOCKS_BATCH_SIZE) {
+      batches.push(productsWithId.slice(i, i + STOCKS_BATCH_SIZE));
+    }
+    
+    console.log(`📦 Загрузка остатков для ${productsWithId.length} товаров батчами: ${batches.length} батчей по ${STOCKS_BATCH_SIZE} товаров`);
+    
+    // Загружаем все батчи параллельно
+    const batchPromises = batches.map(batch => loadStocksForProductsBatch(batch.map(p => p.id)));
+    const batchResults = await Promise.all(batchPromises);
+    
+    // Объединяем результаты
+    const stocksMap = {};
+    batchResults.forEach(batchData => {
+      Object.assign(stocksMap, batchData);
     });
-    const results = await runLimited(queue, concurrency);
+    
+    // Создаем результаты для всех товаров
+    const results = productsWithId.map(p => ({
+      product: p,
+      stocks: stocksMap[p.id] || {}
+    })).concat(missingProducts.map(p => ({
+      product: p,
+      stocks: {}
+    })));
+    
+    const loadTime = Date.now() - startTime;
+    console.log(`✅ Загружены остатки для ${products.length} товаров за ${loadTime}ms (${batches.length} параллельных запросов)`);
 
     const productsWithStocks = results.map(({ product, stocks }) => {
       // Определяем какие склады учитывать для общего остатка
@@ -1098,10 +1197,8 @@ async function loadPage(useFilters = false) {
     // Обновляем стрелочки после рендеринга таблицы
     markSortableHeaders();
     updateAllSortArrows();
-    if (useFilters) {
-      const total = productsResp?.total || 0;
-      pageInfo.textContent = formatPageInfo();
-    } else {
+    // Обновляем информацию о странице, если элемент существует
+    if (pageInfo) {
       pageInfo.textContent = formatPageInfo();
     }
   } catch (e) {
@@ -1185,7 +1282,10 @@ function applyAndRender() {
   // Обновляем стрелочки после рендеринга
   markSortableHeaders();
   updateAllSortArrows();
-  pageInfo.textContent = formatPageInfo();
+  // Обновляем информацию о странице, если элемент существует
+  if (pageInfo) {
+    pageInfo.textContent = formatPageInfo();
+  }
 }
 
 function formatPageInfo() {
@@ -1588,6 +1688,9 @@ async function refreshMissingProduct(remonlineId, buttonEl) {
 // Экспортируем для использования в других модулях (tab.js)
 window.refreshMissingProduct = refreshMissingProduct;
 
+/**
+ * Загружает остатки для одного товара (старый метод, оставлен для совместимости)
+ */
 async function loadStocksForProduct(productId) {
   const url = `${API_BASE}/stocks/product/${productId}?include_details=true`;
   const resp = await fetchJson(url);
@@ -1604,6 +1707,35 @@ async function loadStocksForProduct(productId) {
     if (map[w.remonline_id] == null) map[w.remonline_id] = 0;
   }
   return map;
+}
+
+/**
+ * Загружает остатки для нескольких товаров одним запросом
+ * @param {number[]} productIds - массив ID товаров
+ * @returns {Promise<Object>} - объект {product_id: {warehouse_remonline_id: quantity}}
+ */
+async function loadStocksForProductsBatch(productIds) {
+  if (!productIds || productIds.length === 0) {
+    return {};
+  }
+  
+  const url = `${API_BASE}/stocks/products/batch?product_ids=${productIds.join(',')}&include_details=true`;
+  const resp = await fetchJson(url);
+  const stocksData = resp?.data || {};
+  
+  // Убеждаемся что у всех товаров и всех целевых складов есть значения (даже если 0)
+  const result = {};
+  for (const productId of productIds) {
+    result[productId] = stocksData[productId] || {};
+    // Добавляем нулевые значения для всех складов если их нет
+    for (const w of TARGET_WAREHOUSES) {
+      if (result[productId][w.remonline_id] == null) {
+        result[productId][w.remonline_id] = 0;
+      }
+    }
+  }
+  
+  return result;
 }
 
 async function runLimited(tasks, limit = 5) {
@@ -1658,10 +1790,8 @@ function attachImageHoverPreview() {
   });
 }
 
-// Инициализация: загружаем склады, затем данные
-loadWarehouses().then(() => {
-  loadPage();
-});
+// Инициализация: загружаем склады (товары загрузятся через систему вкладок в initClassicTheme/initTileTheme)
+loadWarehouses();
 
 // Сортировка по клику на заголовки
 const theadEl = document.querySelector('thead');

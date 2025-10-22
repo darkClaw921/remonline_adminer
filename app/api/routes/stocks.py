@@ -410,3 +410,70 @@ async def get_stocks_by_product(
         count=len(stocks),
         message=f"Stocks for product {product.name}"
     )
+
+@router.get("/products/batch", response_model=APIResponse)
+async def get_stocks_for_products_batch(
+    product_ids: str,
+    include_details: bool = True,
+    db: Session = Depends(get_db)
+):
+    """
+    Получить остатки для нескольких товаров одним запросом
+    
+    Args:
+        product_ids: ID товаров через запятую (например: "1,2,3,4,5")
+        include_details: Включать ли детали складов и товаров
+    
+    Returns:
+        Словарь с остатками по товарам: {product_id: [{warehouse_remonline_id: quantity}]}
+    """
+    # Парсим ID товаров
+    try:
+        ids = [int(x.strip()) for x in product_ids.split(',') if x.strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid product_ids format")
+    
+    if not ids:
+        return APIResponse(
+            success=True,
+            data={},
+            count=0,
+            message="No product IDs provided"
+        )
+    
+    # Ограничение на количество товаров за раз
+    if len(ids) > 100:
+        raise HTTPException(status_code=400, detail="Too many products (max 100)")
+    
+    # Загружаем остатки для всех товаров одним запросом
+    query = db.query(Stock).filter(Stock.product_id.in_(ids))
+    
+    if include_details:
+        query = query.options(
+            joinedload(Stock.warehouse),
+            joinedload(Stock.product)
+        )
+    
+    stocks = query.all()
+    
+    # Группируем остатки по товарам
+    result = {}
+    for stock in stocks:
+        product_id = stock.product_id
+        if product_id not in result:
+            result[product_id] = {}
+        
+        warehouse_rem_id = stock.warehouse.remonline_id
+        result[product_id][warehouse_rem_id] = stock.available_quantity or 0
+    
+    # Добавляем пустые записи для товаров без остатков
+    for pid in ids:
+        if pid not in result:
+            result[pid] = {}
+    
+    return APIResponse(
+        success=True,
+        data=result,
+        count=len(result),
+        message=f"Stocks for {len(ids)} products"
+    )
